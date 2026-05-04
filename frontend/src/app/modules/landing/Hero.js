@@ -53,7 +53,7 @@ const Hero = () => {
                     >
                         <motion.div variants={itemVariants} className="inline-flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 rounded-full bg-white border border-slate-200 shadow-sm mb-6">
                             <span className="flex h-2 w-2 rounded-full bg-green-600 animate-pulse" />
-                            <span className="text-xs md:text-sm font-medium text-slate-600">Powerd by Finvia</span>
+                            <span className="text-xs md:text-sm font-medium text-slate-600">Powerd</span>
                         </motion.div>
 
                         <motion.h1 variants={itemVariants} className="text-4xl md:text-5xl lg:text-7xl font-bold text-slate-900 leading-[1.15] mb-6">
