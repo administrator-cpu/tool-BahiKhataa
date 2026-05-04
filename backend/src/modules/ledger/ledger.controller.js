@@ -74,32 +74,65 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   res.status(201).json({ status: 'success', data: { log: newEntry } });
 });
 
+// export const getCustomerDashboard = catchAsync(async (req, res, next) => {
+//   const { customerId } = req.params;
+
+//   const page = parseInt(req.query.page) || 1;
+//   const limit = parseInt(req.query.limit) || 20;
+//   const skip = (page - 1) * limit;
+
+//   const paginatedLogs = await Ledger.find({ customer: customerId }).sort({ date: -1 }).skip(skip).limit(limit);
+
+//   const totalLogs = await Ledger.countDocuments({ customer: customerId });
+//   const totalPages = Math.ceil(totalLogs / limit);
+
+//   const agingReport = await Ledger.getAgingReport(customerId);
+
+//   res.status(200).json({
+//     status: 'success',
+//     data: {
+//       aging: agingReport,
+//       pagination: {
+//         currentPage: page,
+//         totalPages: totalPages,
+//         totalRecords: totalLogs,
+//         hasNextPage: page < totalPages,
+//         hasPrevPage: page > 1
+//       },
+//       transactions: paginatedLogs
+//     }
+
 export const getCustomerDashboard = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
 
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 20;
-  const skip = (page - 1) * limit;
+  const ledgerData = await Ledger.find({ 
+    customer: customerId,
+    status: { $in: ['approved', 'pending'] } 
+  }).sort({ date: -1 });
+  let totalDebit = 0;
+  let totalCredit = 0;
 
-  const paginatedLogs = await Ledger.find({ customer: customerId }).sort({ date: -1 }).skip(skip).limit(limit);
-
-  const totalLogs = await Ledger.countDocuments({ customer: customerId });
-  const totalPages = Math.ceil(totalLogs / limit);
+  ledgerData.forEach(log => {
+    if (log.status === 'approved') {
+      if (log.debit) totalDebit += log.debit;
+      if (log.credit) totalCredit += log.credit;
+    }
+  });
 
   const agingReport = await Ledger.getAgingReport(customerId);
 
   res.status(200).json({
     status: 'success',
     data: {
-      aging: agingReport,
-      pagination: {
-        currentPage: page,
-        totalPages: totalPages,
-        totalRecords: totalLogs,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
+      transactions: ledgerData,
+      totals: { 
+        debit: totalDebit, 
+        credit: totalCredit 
       },
-      transactions: paginatedLogs
+      aging: agingReport
     }
   });
+});
+
+//   });
 });
