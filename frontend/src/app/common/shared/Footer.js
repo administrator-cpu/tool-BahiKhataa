@@ -31,7 +31,7 @@ const Footer = () => {
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-12 gap-6">
           <p className="text-slate-400 text-xs font-medium">
-            © {currentYear} Finvia Technologies Private limited. All rights reserved.
+            © {currentYear} All rights reserved.
           </p>
           <div className="flex items-center gap-8 text-xs font-bold text-slate-400">
              <span className="flex items-center gap-1">
