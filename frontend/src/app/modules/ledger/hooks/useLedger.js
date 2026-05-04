@@ -86,7 +86,7 @@ export function useLedger(customerId, currentUserRole) {
     setSalesFormData({ date: '', amount: '', utr: '', bank: '', remarks: '' });
   };
 
-  const totals = (ledgerData || []).reduce((acc, row) => {
+  const totals = (ledgerData || []).filter(row => row.status === 'approved').reduce((acc, row) => {
     acc.debit += (Number(row?.debit) || 0);
     acc.credit += (Number(row?.credit) || 0);
     return acc;
