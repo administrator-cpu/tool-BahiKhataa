@@ -101,6 +101,8 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
 //       },
 //       transactions: paginatedLogs
 //     }
+//   });
+// });
 
 export const getCustomerDashboard = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
@@ -132,7 +134,4 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
       aging: agingReport
     }
   });
-});
-
-//   });
 });
