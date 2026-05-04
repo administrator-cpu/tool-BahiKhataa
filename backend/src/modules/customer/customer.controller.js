@@ -164,7 +164,7 @@ export const getCustomerById = catchAsync(async (req, res, next) => {
 export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
   const targetManager = req.query.manager || req.user.id;
   const customers = await Customer.find({ manager: targetManager }).populate("manager", "name email");
-  
+
 
   if (!customers.length) {
     return res.status(200).json({
@@ -179,21 +179,14 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
 
       return {
         id: customer._id,
-        company: customer.companyName,
-        gst: customer.gstNumber,
-        outstanding: aging.total,
-        managerName: customer.manager.name || "Unassigned",
-        managerId:  customer.manager._id || "",
-        current: aging.current,
-        d30: aging.thirtyPlus,
-        d60: aging.sixtyPlus,
-        d90: aging.ninetyPlus,
+        name: customer.companyName,
+        managerName: customer.manager ? customer.manager.name : "Unassigned",
+        managerId: customer.manager ? customer.manager._id : "",
+        aging: aging,
       };
     }),
   );
 
-  console.log(portfolio);
-  
   const customerIds = customers.map((c) => c._id);
   const pendingCount = await Ledger.countDocuments({
     customer: { $in: customerIds },
