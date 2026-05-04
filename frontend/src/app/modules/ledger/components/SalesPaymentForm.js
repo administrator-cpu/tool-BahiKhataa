@@ -10,22 +10,20 @@ export default function SalesPaymentForm({
   isSubmitting 
 }) {
   return (
-    <div className="bg-white border border-blue-200 rounded-3xl shadow-sm shadow-blue-100 overflow-hidden transition-colors">
+    <div className="overflow-hidden transition-colors bg-white border border-blue-200 shadow-sm rounded-3xl shadow-blue-100">
       
       {/* FORM HEADER */}
-      <div className="p-4 bg-blue-50/50 border-b border-blue-100 flex justify-between items-center">
-        <h2 className="font-bold flex items-center gap-2 text-blue-800">
+      <div className="flex items-center justify-between p-4 border-b bg-blue-50/50 border-blue-100">
+        <h2 className="flex items-center gap-2 font-bold text-blue-800">
           <IndianRupee size={18} className="text-blue-600"/> Log Payment Details
         </h2>
       </div>
       
       {/* FORM BODY */}
       <form onSubmit={onSubmit} className="p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           
-          {/* ========================================== */}
-          {/* 1. THE NEW DATE FIELD FOR EMPLOYEES          */}
-          {/* ========================================== */}
+          {/* 1. PAYMENT DATE */}
           <InputField 
             label="Payment Date" 
             type="date" 
@@ -59,15 +57,33 @@ export default function SalesPaymentForm({
             className="font-mono uppercase text-slate-700"
           />
 
-          {/* 4. BANK NAME */}
-          <InputField 
-            label="Bank Name" 
-            name="bank" 
-            placeholder="e.g. HDFC, SBI..." 
-            value={formData.bank} 
-            onChange={onChange} 
-            icon={Building2}
-          />
+          {/* 4. BANK NAME / PAYMENT MODE DROPDOWN */}
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+              <Building2 size={16} className="text-slate-400" />
+              Bank Name / Mode
+            </label>
+            <div className="relative">
+              <select
+                name="bank"
+                required
+                value={formData.bank}
+                onChange={onChange}
+                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-slate-900 appearance-none cursor-pointer"
+              >
+                <option value="" disabled>Select mode...</option>
+                <option value="Kotak">Kotak</option>
+                <option value="Yes">Yes Bank</option>
+                <option value="Credit Card">Credit Card</option>
+                <option value="Payment Gateway">Payment Gateway</option>
+                <option value="Others">Others</option>
+              </select>
+              {/* Custom Dropdown Arrow */}
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+            </div>
+          </div>
           
           {/* 5. REMARKS */}
           <div className="sm:col-span-2 lg:col-span-4">
@@ -84,13 +100,13 @@ export default function SalesPaymentForm({
         </div>
 
         {/* SUBMIT BUTTON */}
-        <div className="mt-6 flex justify-end">
+        <div className="flex justify-end mt-6">
           <Button 
             type="submit" 
             isLoading={isSubmitting} 
             variant="primary" 
             icon={Send} 
-            className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto px-8 shadow-sm shadow-blue-200"
+            className="w-full px-8 bg-blue-600 shadow-sm sm:w-auto hover:bg-blue-700 shadow-blue-200"
           >
             Submit for Approval
           </Button>
