@@ -10,15 +10,8 @@ const ledgerSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'Transaction date is required']
   },
-  description: {
-    type: String,
-    trim: true
-  },
-  invoiceNo: {
-    type: String,
-    trim: true,
-    default: null
-  },
+  description: { type: String, trim: true },
+  invoiceNo: { type: String, trim: true, default: null },
   debit: {
     type: Number,
     default: 0,
@@ -44,11 +37,39 @@ const ledgerSchema = new mongoose.Schema({
     default: 'approved',
     required: true
   },
+  addedBy: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'User'
+  },
   rejectedReason: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
     default: null
-  }
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['Unpaid', 'Partially Paid', 'Paid'],
+    default: 'Unpaid'
+  },
+  amountPaid: { type: Number, default: 0 },
+  balanceDue: { 
+    type: Number, 
+    default: function() { return this.debit; } 
+  },
+  paymentsReceived: [{
+    paymentId: { type: mongoose.Schema.ObjectId, ref: 'Ledger' },
+    amountApplied: { type: Number },
+    date: { type: Date, default: Date.now }
+  }],
+  unallocatedAmount: { 
+    type: Number,
+    default: function() { return this.credit; } 
+  },
+  isUsingAdvance: { type: Boolean, default: false },
+  allocations: [{
+    billId: { type: mongoose.Schema.ObjectId, ref: 'Ledger' },
+    amountApplied: { type: Number }
+  }]
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
@@ -56,65 +77,53 @@ const ledgerSchema = new mongoose.Schema({
 });
 
 ledgerSchema.index({ customer: 1, date: -1 });
-ledgerSchema.index({ status: 1 })
+ledgerSchema.index({ status: 1 });
+ledgerSchema.index({ paymentStatus: 1 });
 
 ledgerSchema.statics.getAgingReport = async function (customerId) {
-  const transactions = await this.find({
+  const unpaidBills = await this.find({
     customer: customerId,
-    status: 'approved'
-  }).sort({ date: 1 });
+    status: 'approved',
+    debit: { $gt: 0 }, // It must be a bill
+    paymentStatus: { $ne: 'Paid' }
+  });
 
-  let totalCredits = 0;
-  const unpaidDebits = [];
+  const now = new Date();
+  const buckets = { 
+    total: 0, 
+    current: 0, 
+    thirtyPlus: 0, 
+    sixtyPlus: 0, 
+    ninetyPlus: 0, 
+    availableAdvance: 0
+  };
 
-  transactions.forEach(transaction => {
-    if (transaction.credit > 0) totalCredits += transaction.credit;
-    if (transaction.debit > 0) {
-      unpaidDebits.push({
-        date: transaction.date,
-        amount: transaction.debit
-      });
+  unpaidBills.forEach(bill => {
+    const due = bill.balanceDue;
+    if (due > 0) {
+      buckets.total += due;
+
+      const diffTime = Math.abs(now - new Date(bill.date));
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays <= 30) buckets.current += due;
+      else if (diffDays <= 60) buckets.thirtyPlus += due;
+      else if (diffDays <= 90) buckets.sixtyPlus += due;
+      else buckets.ninetyPlus += due;
     }
   });
 
-  let remainingCredit = totalCredits;
-
-  for (let i = 0; i < unpaidDebits.length; i++) {
-    if (remainingCredit <= 0) break;
-
-    if (remainingCredit >= unpaidDebits[i].amount) {
-      remainingCredit -= unpaidDebits[i].amount;
-      unpaidDebits[i].amount = 0;
-    } else {
-      unpaidDebits[i].amount -= remainingCredit;
-      remainingCredit = 0;
-    }
-  }
-
-  const now = new Date();
-  const buckets = { total: 0, current: 0, thirtyPlus: 0, sixtyPlus: 0, ninetyPlus: 0 };
-
-  unpaidDebits.forEach(invoice => {
-    if (invoice.amount > 0) {
-      buckets.total += invoice.amount;
-
-      const diffTime = Math.abs(now - new Date(invoice.date));
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays <= 30) buckets.current += invoice.amount;
-      else if (diffDays <= 60) buckets.thirtyPlus += invoice.amount;
-      else if (diffDays <= 90) buckets.sixtyPlus += invoice.amount;
-      else buckets.ninetyPlus += invoice.amount;
-    }
-  })
-
-   if (remainingCredit > 0) {
-    buckets.total = -remainingCredit;
+  const Customer = mongoose.model('Customer');
+  const customer = await Customer.findById(customerId).select('availableAdvance');
+  
+  if (customer && customer.availableAdvance > 0) {
+    buckets.availableAdvance = customer.availableAdvance;
+    buckets.total -= customer.availableAdvance; 
   }
 
   return buckets;
-
 };
+
 
 const Ledger = mongoose.model('Ledger', ledgerSchema);
 

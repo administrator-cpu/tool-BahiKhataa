@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const customerSchema = new mongoose.Schema ({
+const customerSchema = new mongoose.Schema({
   companyName: {
     type: String,
     required: [true, "Please enter the company name"],
@@ -17,10 +17,19 @@ const customerSchema = new mongoose.Schema ({
     uppercase: true,
     trim: true
   },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true
+  },
   manager: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
     // required: [true, "Customer must be assigned to an Employee"]
+  },
+  availableAdvance: {
+    type: Number,
+    default: 0
   },
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
@@ -30,7 +39,7 @@ const customerSchema = new mongoose.Schema ({
   timestamps: true
 })
 
-customerSchema.index({ managedBy: 1 });
+customerSchema.index({ manager: 1 });
 
 const Customer = mongoose.model('Customer', customerSchema);
 
