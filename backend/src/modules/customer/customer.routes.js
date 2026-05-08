@@ -1,5 +1,5 @@
 import express from 'express';
-import { createCustomer, getMyCustomers, getAllCustomers, getPortfolioDashboard, getCustomerById, getMainDashboard, editCustomer } from './customer.controller.js';
+import { createCustomer, getMyCustomers, getAllCustomers, getPortfolioDashboard, getCustomerById, getMainDashboard, editCustomer, assignManager } from './customer.controller.js';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 
 const router = express.Router();
@@ -12,7 +12,10 @@ router.get('/me', restrictTo('employee', 'admin'), getMyCustomers);
 
 router.post('/', restrictTo('admin'), createCustomer);
 router.patch('/:id', restrictTo('admin'), editCustomer);
-// router.get('/', restrictTo('admin'), getAllCustomers);
+router.patch(
+  '/:customerId/assign-manager', restrictTo('admin'),
+  assignManager
+);
 router.get('/', restrictTo('admin', 'employee'), getMainDashboard);
 router.get('/:id', restrictTo('admin', 'employee'), getCustomerById);
 export default router;

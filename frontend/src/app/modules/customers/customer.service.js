@@ -8,7 +8,8 @@ export const customerService = {
       companyName: customerData.companyName,
       address: customerData.address,
       gstNumber: customerData.gst,       
-      manager: customerData.manager   
+      manager: customerData.manager,  
+      email: customerData.email
     };
     return await apiClient.post('/customers', payload);
   },
