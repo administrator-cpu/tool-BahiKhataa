@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Ledger from './ledger.model.js';
 import Customer from '../customer/customer.model.js';
+import { sendPaymentAdjustmentEmail } from '../../utils/emailService.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
@@ -135,19 +136,24 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
     if (remarks) log.remarks = remarks;
     if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
 
-    if (debit !== undefined && debit !== log.debit) {
+    const incomingDebit = Number(debit) || 0;
+    const existingDebit = log.debit || 0;
+
+    const incomingCredit = Number(credit) || 0;
+    const existingCredit = log.credit || 0;
+    if (incomingDebit !== existingDebit) {
       if (log.paymentStatus !== 'Unpaid' || log.amountPaid > 0) {
         return next(new AppError('You cannot change the amount of a bill that has payments applied to it.', 400));
       }
-      log.debit = debit;
-      log.balanceDue = debit;
+      log.debit = incomingDebit;
+      log.balanceDue = incomingDebit;
     }
 
-    if (credit !== undefined && credit !== log.credit) {
+    if (incomingCredit !== existingCredit) {
       if (log.status === 'approved') {
         return next(new AppError('Industry Standard: To change the amount of a processed payment, please delete the entry and re-enter it. This ensures advance balances calculate correctly.', 400));
       }
-      log.credit = credit;
+      log.credit = incomingCredit;
     }
 
     await log.save();
@@ -239,6 +245,8 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
     }
     log.status = 'approved';
     await processPaymentAllocations(log);
+    await log.save();
+    sendPaymentAdjustmentEmail(log);
   } else if (action === 'reject') {
     if (!rejectionReason) return next(new AppError('Rejection reason is required', 400));
     log.status = 'rejected';
@@ -289,6 +297,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   if (newEntry.credit > 0) {
     await processPaymentAllocations(newEntry);
     await newEntry.save();
+    sendPaymentAdjustmentEmail(newEntry);
   }
 
   res.status(201).json({ status: 'success', data: { log: newEntry } });

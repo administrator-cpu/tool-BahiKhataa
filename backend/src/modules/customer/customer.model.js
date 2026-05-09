@@ -20,7 +20,9 @@ const customerSchema = new mongoose.Schema({
   email: {
     type: String,
     trim: true,
-    lowercase: true
+    lowercase: true,
+    trim: true,
+    required: [true, "Please enter the Customer email"],
   },
   manager: {
     type: mongoose.Schema.ObjectId,
