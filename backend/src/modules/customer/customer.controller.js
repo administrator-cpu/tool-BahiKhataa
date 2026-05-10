@@ -256,88 +256,116 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
 /* Download Customer Ledger PDF */
 export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
+  const { fromDate, toDate } = req.query;
 
-  // 1. Fetch Customer and their Approved Ledger entries
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
 
-  // Sort by date ascending (oldest to newest) to mimic standard ledgers
-  const ledgers = await Ledger.find({ 
-    customer: customerId, 
-    status: 'approved' 
-  }).sort({ date: 1 });
+  let query = { customer: customerId, status: 'approved' };
+  let openingBalance = 0;
 
-  // 2. Initialize PDF Document
+  if (fromDate) {
+    query.date = { $gte: new Date(fromDate) };
+
+    const prevLogs = await Ledger.find({
+      customer: customerId,
+      status: 'approved',
+      date: { $lt: new Date(fromDate) }
+    });
+
+    let prevDebit = 0;
+    let prevCredit = 0;
+    prevLogs.forEach(log => {
+      prevDebit += (log.debit || 0);
+      prevCredit += (log.credit || 0);
+    });
+    
+    openingBalance = prevDebit - prevCredit; 
+  }
+
+  if (toDate) {
+    query.date = query.date || {};
+    query.date.$lte = new Date(toDate);
+  }
+
+  const ledgers = await Ledger.find(query).sort({ date: 1 });
+
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-  // 3. Set HTTP Headers for PDF Download
   const safeCompanyName = customer.companyName.replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `${safeCompanyName}_Ledger.pdf`;
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`); 
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
 
-  // Pipe the PDF document directly to the Express response
   doc.pipe(res);
 
-  // ==========================================
-  // 4. HEADER SECTION (Matches Fab Five Format)
-  // ==========================================
   doc.fontSize(16).font('Helvetica-Bold').text('Fab Five Network Pvt Ltd', { align: 'center' });
   doc.fontSize(10).font('Helvetica').text('1st Floor Plot No. 2456, A KH no. 82/16 Jain Colony', { align: 'center' });
   doc.text('Contact: 8929882020    E-Mail: info@fab5network.com', { align: 'center' });
   doc.moveDown(1.5);
 
-  // Dynamic Customer Details
   doc.fontSize(14).font('Helvetica-Bold').text(customer.companyName.toUpperCase(), { align: 'center' });
   doc.fontSize(12).font('Helvetica').text('Ledger Account', { align: 'center' });
   
-  // Dynamic Date Range
-  const startDate = ledgers.length > 0 ? new Date(ledgers[0].date).toLocaleDateString('en-IN') : 'N/A';
-  const endDate = ledgers.length > 0 ? new Date(ledgers[ledgers.length - 1].date).toLocaleDateString('en-IN') : 'N/A';
-  doc.fontSize(10).font('Helvetica').text(`${startDate} to ${endDate}`, { align: 'center' });
+  const displayStartDate = fromDate ? new Date(fromDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[0].date).toLocaleDateString('en-IN') : '-');
+  const displayEndDate = toDate ? new Date(toDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[ledgers.length - 1].date).toLocaleDateString('en-IN') : '-');
+  doc.fontSize(10).font('Helvetica').text(`${displayStartDate} to ${displayEndDate}`, { align: 'center' });
   doc.moveDown(1.5);
 
-  // ==========================================
-  // 5. TABLE DATA PREPARATION
-  // ==========================================
   let totalDebit = 0;
   let totalCredit = 0;
+  const tableRows = [];
 
-  const tableRows = ledgers.map(log => {
+  if (fromDate) {
+    let opDebitStr = '';
+    let opCreditStr = '';
+
+    if (openingBalance > 0) {
+      totalDebit += openingBalance;
+      opDebitStr = openingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else if (openingBalance < 0) {
+      totalCredit += Math.abs(openingBalance);
+      opCreditStr = Math.abs(openingBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else {
+      opDebitStr = '0.00';
+    }
+
+    tableRows.push([
+      new Date(fromDate).toLocaleDateString('en-IN'),
+      'Opening Balance',
+      opDebitStr,
+      opCreditStr
+    ]);
+  }
+
+  ledgers.forEach(log => {
     const debitAmt = log.debit || 0;
     const creditAmt = log.credit || 0;
     
     totalDebit += debitAmt;
     totalCredit += creditAmt;
 
-    // Formatting 'Particulars' to mimic "To / By" style
     let particulars = log.description || '-';
     if (log.credit > 0 && log.bankInfo?.bankName) {
       particulars = `Receipt By ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(' + log.bankInfo.utrReference + ')' : ''}`;
     }
 
-    // Return the specific 4 columns: Date, Particulars, Debit, Credit
-    return [
+    tableRows.push([
       new Date(log.date).toLocaleDateString('en-IN'),
       particulars,
       debitAmt > 0 ? debitAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
       creditAmt > 0 ? creditAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
-    ];
+    ]);
   });
 
-  // ==========================================
-  // 6. TOTALS & CLOSING BALANCE CALCULATION
-  // ==========================================
   const balance = totalDebit - totalCredit;
   const isDebitBalance = balance > 0;
 
-  // Add a spacer row before totals
   tableRows.push(['', '', '', '']);
 
-  // Add sub-total row
   tableRows.push([
     '', 
     'Total', 
@@ -345,7 +373,6 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })
   ]);
 
-  // Add Closing Balance to the weaker side to balance the ledger
   if (balance !== 0) {
     tableRows.push([
       '', 
@@ -355,7 +382,6 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     ]);
   }
 
-  // Add Grand Total row
   const grandTotal = Math.max(totalDebit, totalCredit);
   tableRows.push([
     '', 
@@ -364,13 +390,10 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })
   ]);
 
-  // ==========================================
-  // 7. DRAW THE TABLE
-  // ==========================================
   const table = {
     headers: [
       { label: "Date", property: "date", width: 70 },
-      { label: "Particulars", property: "particulars", width: 270 }, // Increased width since Vch No is gone
+      { label: "Particulars", property: "particulars", width: 270 },
       { label: "Debit", property: "debit", width: 85, align: "right" },
       { label: "Credit", property: "credit", width: 85, align: "right" }
     ],
@@ -380,8 +403,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   await doc.table(table, {
     prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10),
     prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
-      // Make the Totals and Closing Balance rows bold at the bottom
-      if (indexRow >= ledgers.length) {
+      if (indexRow >= tableRows.length - 3 || (fromDate && indexRow === 0)) {
         doc.font("Helvetica-Bold").fontSize(10);
       } else {
         doc.font("Helvetica").fontSize(10);
@@ -389,7 +411,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     },
     divider: {
       header: { disabled: false, width: 1, opacity: 1 },
-      horizontal: { disabled: true }, // Removes horizontal lines between standard rows like a true ledger
+      horizontal: { disabled: true },
     },
     padding: 5
   });

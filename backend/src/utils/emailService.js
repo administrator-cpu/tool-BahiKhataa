@@ -24,9 +24,8 @@ export const sendPaymentAdjustmentEmail = async (paymentLog) => {
       <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
         <p>Dear ${customer.companyName},</p>
         <p>Greetings from Fab5 !!</p>
-        <p>This is to inform you that we have adjusted your recent payment of <b>₹${paymentLog.credit}</b> against the outstanding invoices. Invoice No. - <b>${invoiceNumbers}</b></p>
-        <p>After the above adjustment, the balance outstanding amount as of date is:<br>
-        <b>${balanceText}</b></p>
+        <p>This is to inform you that we have adjusted your recent payment of <b>₹${paymentLog.credit}</b> against the outstanding invoices.</p>
+        <p>After the above adjustment, the balance outstanding amount as of date is <b>${balanceText}</b></p>
         <br>
         <p>Please feel free to contact us in case of any clarification or discrepancy.</p>
         <p>Thank you for your continued support and cooperation.</p>
@@ -34,7 +33,7 @@ export const sendPaymentAdjustmentEmail = async (paymentLog) => {
         <p>Regards,<br>
         <b>Billing Team</b><br>
         billing@fab5network.com<br>
-        Fab5</p>
+        Fab5 Network Pvt Ltd</p>
       </div>
     `;
 

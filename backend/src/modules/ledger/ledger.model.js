@@ -118,7 +118,6 @@ ledgerSchema.statics.getAgingReport = async function (customerId) {
   
   if (customer && customer.availableAdvance > 0) {
     buckets.availableAdvance = customer.availableAdvance;
-    buckets.total -= customer.availableAdvance; 
   }
 
   return buckets;

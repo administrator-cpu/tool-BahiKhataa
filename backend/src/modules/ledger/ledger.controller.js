@@ -110,7 +110,7 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
 
 export const editLedgerEntry = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { debit, credit, date, description, remarks, bankInfo } = req.body;
+  const { debit, credit, date, description, remarks, bankInfo, invoiceNo } = req.body;
 
   const log = await Ledger.findById(id);
   if (!log) return next(new AppError('Log not found', 404));
@@ -135,6 +135,7 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
     if (description) log.description = description;
     if (remarks) log.remarks = remarks;
     if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
+    if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
 
     const incomingDebit = Number(debit) || 0;
     const existingDebit = log.debit || 0;
