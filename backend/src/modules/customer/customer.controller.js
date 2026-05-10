@@ -2,61 +2,11 @@ import Customer from "./customer.model.js";
 import AppError from "../../utils/AppError.js";
 import catchAsync from "../../utils/catchAsync.js";
 import Ledger from "../ledger/ledger.model.js";
-
-const calculateAging = (logs) => {
-  let totalCredit = 0;
-  let totalDebit = 0;
-
-  logs.forEach((log) => {
-    if (log.credit > 0) totalCredit += log.credit;
-    if (log.debit > 0) totalDebit += log.debit;
-  });
-
-  let remainingPaymentPool = totalCredit;
-  const aging = {
-    total: totalDebit - totalCredit,
-    current: 0,
-    thirtyPlus: 0,
-    sixtyPlus: 0,
-    ninetyPlus: 0,
-  };
-
-  if (aging.total <= 0) return aging;
-  const now = new Date();
-
-  const debits = logs
-    .filter((log) => log.debit > 0)
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  debits.forEach((invoice) => {
-    let unpaidAmount = invoice.debit;
-
-    if (remainingPaymentPool > 0) {
-      if (remainingPaymentPool >= unpaidAmount) {
-        remainingPaymentPool -= unpaidAmount;
-        unpaidAmount = 0;
-      } else {
-        unpaidAmount -= remainingPaymentPool;
-        remainingPaymentPool = 0;
-      }
-    }
-    if (unpaidAmount > 0) {
-      const daysOld = Math.floor(
-        (now - new Date(invoice.date)) / (1000 * 60 * 60 * 24),
-      );
-
-      if (daysOld >= 90) aging.ninetyPlus += unpaidAmount;
-      else if (daysOld >= 60) aging.sixtyPlus += unpaidAmount;
-      else if (daysOld >= 30) aging.thirtyPlus += unpaidAmount;
-      else aging.current += unpaidAmount;
-    }
-  });
-
-  return aging;
-};
+import excel from "exceljs";
+import PDFDocument from 'pdfkit-table';
 
 export const createCustomer = catchAsync(async (req, res, next) => {
-  const { companyName, address, gstNumber, manager } = req.body;
+  const { companyName, address, gstNumber, email, manager } = req.body;
 
   // if (!manager) {
   //   return next(new AppError('Please assign a manager to this customer.', 400));
@@ -66,6 +16,7 @@ export const createCustomer = catchAsync(async (req, res, next) => {
     companyName,
     address,
     gstNumber,
+    email,
     manager: manager || null,
   });
 
@@ -164,7 +115,7 @@ export const getCustomerById = catchAsync(async (req, res, next) => {
 export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
   const targetManager = req.query.manager || req.user.id;
   const customers = await Customer.find({ manager: targetManager }).populate("manager", "name email");
-  
+
 
   if (!customers.length) {
     return res.status(200).json({
@@ -179,21 +130,15 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
 
       return {
         id: customer._id,
-        company: customer.companyName,
-        gst: customer.gstNumber,
-        outstanding: aging.total,
-        managerName: customer.manager.name || "Unassigned",
-        managerId:  customer.manager._id || "",
-        current: aging.current,
-        d30: aging.thirtyPlus,
-        d60: aging.sixtyPlus,
-        d90: aging.ninetyPlus,
+        name: customer.companyName,
+        email: customer.email,
+        managerName: customer.manager ? customer.manager.name : "Unassigned",
+        managerId: customer.manager ? customer.manager._id : "",
+        aging: aging,
       };
     }),
   );
 
-  console.log(portfolio);
-  
   const customerIds = customers.map((c) => c._id);
   const pendingCount = await Ledger.countDocuments({
     customer: { $in: customerIds },
@@ -210,60 +155,266 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
 });
 
 export const getMainDashboard = catchAsync(async (req, res, next) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 20;
-  const skip = (page - 1) * limit;
+  // const page = parseInt(req.query.page) || 1;
+  // const limit = parseInt(req.query.limit) || 20;
+  // const skip = (page - 1) * limit;
 
   const query = {};
   if (req.user.role !== "admin") {
     query.manager = req.user.id;
   }
 
-  const customers = await Customer.find(query)
-    .populate("manager", "name email")
-    .lean();
+  const customers = await Customer.find(query).populate("manager", "name email").lean();
 
   const totalCustomers = await Customer.countDocuments(query);
-  const customerIds = customers.map((c) => c._id);
 
-  const ledgers = await Ledger.find({
-    customer: { $in: customerIds },
-    status: "approved",
-  })
-    .sort({ date: 1 })
-    .lean();
-
-  const ledgersByCustomer = {};
-  ledgers.forEach((log) => {
-    const customerId = log.customer.toString();
-    if (!ledgersByCustomer[customerId]) ledgersByCustomer[customerId] = [];
-    ledgersByCustomer[customerId].push(log);
-  });
-
-  const dashboardData = customers.map((customer) => {
-    const customerId = customer._id.toString();
-    const logs = ledgersByCustomer[customerId] || [];
-
-    const aging = calculateAging(logs);
-
-    return {
-      id: customer._id,
-      name: customer.companyName,
-      managerName: customer.manager ? customer.manager.name : "Unassigned",
-      managerId: customer.manager ? customer.manager._id : "",
-      aging: aging,
-    };
-  });
+  const dashboardData = await Promise.all(
+    customers.map(async (customer) => {
+      const aging = await Ledger.getAgingReport(customer._id);
+      return {
+        id: customer._id,
+        name: customer.companyName,
+        email: customer.email,
+        managerName: customer.manager ? customer.manager.name : "Unassigned",
+        managerId: customer.manager ? customer.manager._id : "",
+        aging: aging,
+      };
+    })
+  );
 
   res.status(200).json({
     status: "success",
     data: {
       customers: dashboardData,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(totalCustomers / limit),
-        totalRecords: totalCustomers,
-      },
     },
   });
+});
+
+/* Download Customer Ledger Excel */
+export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
+  const { customerId } = req.params;
+
+  const customer = await Customer.findById(customerId);
+  if (!customer) return next(new AppError('Customer not found', 404));
+
+  const ledgers = await Ledger.find({ 
+    customer: customerId, 
+    status: 'approved' 
+  }).sort({ date: 1 });
+
+  const workbook = new excel.Workbook();
+  workbook.creator = 'BahiKhata App';
+  const worksheet = workbook.addWorksheet('Customer Ledger');
+
+  worksheet.columns = [
+    { header: 'Date', key: 'date', width: 15 },
+    { header: 'Description', key: 'description', width: 40 },
+    { header: 'Invoice No', key: 'invoiceNo', width: 15 },
+    { header: 'Debit (₹)', key: 'debit', width: 15 },
+    { header: 'Credit (₹)', key: 'credit', width: 15 }
+  ];
+
+  worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  worksheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF1F2937' } 
+  };
+  worksheet.getRow(1).alignment = { horizontal: 'center' };
+
+  ledgers.forEach((log) => {
+    const row = worksheet.addRow({
+      date: new Date(log.date).toLocaleDateString('en-IN'), 
+      description: log.description || '-',
+      invoiceNo: log.invoiceNo || '-',
+      debit: log.debit > 0 ? log.debit : '',
+      credit: log.credit > 0 ? log.credit : ''
+    });
+
+    row.getCell('debit').alignment = { horizontal: 'right' };
+    row.getCell('credit').alignment = { horizontal: 'right' };
+    
+  });
+
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  
+  const safeCompanyName = customer.companyName.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `Ledger_${safeCompanyName}.xlsx`;
+  
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=${fileName}`
+  );
+
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+/* Download Customer Ledger PDF */
+export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
+  const { customerId } = req.params;
+  const { fromDate, toDate } = req.query;
+
+  const customer = await Customer.findById(customerId);
+  if (!customer) return next(new AppError('Customer not found', 404));
+
+  let query = { customer: customerId, status: 'approved' };
+  let openingBalance = 0;
+
+  if (fromDate) {
+    query.date = { $gte: new Date(fromDate) };
+
+    const prevLogs = await Ledger.find({
+      customer: customerId,
+      status: 'approved',
+      date: { $lt: new Date(fromDate) }
+    });
+
+    let prevDebit = 0;
+    let prevCredit = 0;
+    prevLogs.forEach(log => {
+      prevDebit += (log.debit || 0);
+      prevCredit += (log.credit || 0);
+    });
+    
+    openingBalance = prevDebit - prevCredit; 
+  }
+
+  if (toDate) {
+    query.date = query.date || {};
+    query.date.$lte = new Date(toDate);
+  }
+
+  const ledgers = await Ledger.find(query).sort({ date: 1 });
+
+  const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
+  const safeCompanyName = customer.companyName.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `${safeCompanyName}_Ledger.pdf`;
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
+  doc.pipe(res);
+
+  doc.fontSize(16).font('Helvetica-Bold').text('Fab Five Network Pvt Ltd', { align: 'center' });
+  doc.fontSize(10).font('Helvetica').text('1st Floor Plot No. 2456, A KH no. 82/16 Jain Colony', { align: 'center' });
+  doc.text('Contact: 8929882020    E-Mail: info@fab5network.com', { align: 'center' });
+  doc.moveDown(1.5);
+
+  doc.fontSize(14).font('Helvetica-Bold').text(customer.companyName.toUpperCase(), { align: 'center' });
+  doc.fontSize(12).font('Helvetica').text('Ledger Account', { align: 'center' });
+  
+  const displayStartDate = fromDate ? new Date(fromDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[0].date).toLocaleDateString('en-IN') : '-');
+  const displayEndDate = toDate ? new Date(toDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[ledgers.length - 1].date).toLocaleDateString('en-IN') : '-');
+  doc.fontSize(10).font('Helvetica').text(`${displayStartDate} to ${displayEndDate}`, { align: 'center' });
+  doc.moveDown(1.5);
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const tableRows = [];
+
+  if (fromDate) {
+    let opDebitStr = '';
+    let opCreditStr = '';
+
+    if (openingBalance > 0) {
+      totalDebit += openingBalance;
+      opDebitStr = openingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else if (openingBalance < 0) {
+      totalCredit += Math.abs(openingBalance);
+      opCreditStr = Math.abs(openingBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else {
+      opDebitStr = '0.00';
+    }
+
+    tableRows.push([
+      new Date(fromDate).toLocaleDateString('en-IN'),
+      'Opening Balance',
+      opDebitStr,
+      opCreditStr
+    ]);
+  }
+
+  ledgers.forEach(log => {
+    const debitAmt = log.debit || 0;
+    const creditAmt = log.credit || 0;
+    
+    totalDebit += debitAmt;
+    totalCredit += creditAmt;
+
+    let particulars = log.description || '-';
+    if (log.credit > 0 && log.bankInfo?.bankName) {
+      particulars = `Receipt By ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(' + log.bankInfo.utrReference + ')' : ''}`;
+    }
+
+    tableRows.push([
+      new Date(log.date).toLocaleDateString('en-IN'),
+      particulars,
+      debitAmt > 0 ? debitAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+      creditAmt > 0 ? creditAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
+    ]);
+  });
+
+  const balance = totalDebit - totalCredit;
+  const isDebitBalance = balance > 0;
+
+  tableRows.push(['', '', '', '']);
+
+  tableRows.push([
+    '', 
+    'Total', 
+    totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+    totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  ]);
+
+  if (balance !== 0) {
+    tableRows.push([
+      '', 
+      isDebitBalance ? 'By Closing Balance' : 'To Closing Balance', 
+      isDebitBalance ? '' : Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+      isDebitBalance ? Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
+    ]);
+  }
+
+  const grandTotal = Math.max(totalDebit, totalCredit);
+  tableRows.push([
+    '', 
+    '', 
+    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  ]);
+
+  const table = {
+    headers: [
+      { label: "Date", property: "date", width: 70 },
+      { label: "Particulars", property: "particulars", width: 270 },
+      { label: "Debit", property: "debit", width: 85, align: "right" },
+      { label: "Credit", property: "credit", width: 85, align: "right" }
+    ],
+    rows: tableRows
+  };
+
+  await doc.table(table, {
+    prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10),
+    prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+      if (indexRow >= tableRows.length - 3 || (fromDate && indexRow === 0)) {
+        doc.font("Helvetica-Bold").fontSize(10);
+      } else {
+        doc.font("Helvetica").fontSize(10);
+      }
+    },
+    divider: {
+      header: { disabled: false, width: 1, opacity: 1 },
+      horizontal: { disabled: true },
+    },
+    padding: 5
+  });
+
+  doc.end();
 });

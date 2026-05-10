@@ -1,3 +1,4 @@
+// src/app/modules/ledger/hooks/useLedger.js
 import { useState, useEffect, useCallback } from 'react';
 import { ledgerService } from '../ledger.service';
 import { customerService } from '../../customers/customer.service';
@@ -7,13 +8,14 @@ export function useLedger(customerId, currentUserRole) {
   const [isLoading, setIsLoading] = useState(true);
   const [customerProfile, setCustomerProfile] = useState(null);
   const [ledgerData, setLedgerData] = useState([]);
+  const [dashboardTotals, setDashboardTotals] = useState({ outstanding: 0, availableAdvance: 0 });
   const [agingTotals, setAgingTotals] = useState({ current: 0, d30: 0, d60: 0, d90: 0 });
   
   const [editingId, setEditingId] = useState(null);
-  const [adminFormData, setAdminFormData] = useState({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '' });
-  const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '' });
+  const [adminFormData, setAdminFormData] = useState({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false });
+  const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
 
- const fetchLedgerData = useCallback(async () => {
+  const fetchLedgerData = useCallback(async () => {
     if (!customerId) return;
     try {
       const [ledgerRes, profileRes] = await Promise.all([
@@ -21,20 +23,20 @@ export function useLedger(customerId, currentUserRole) {
         customerService.getCustomerById(customerId)
       ]);
 
-      // THE FIX: ledgerRes is already the data object because of your service return
       const transactions = ledgerRes?.data?.transactions || [];
-      const aging = ledgerRes?.data?.aging || {};
+      const backendAging = ledgerRes?.data?.aging || {};
+      const backendTotals = ledgerRes?.data?.totals || { outstanding: 0, availableAdvance: 0 };
 
       setLedgerData(transactions);
+      setDashboardTotals(backendTotals); // 💡 Trust the backend
       
       setAgingTotals({
-        current: aging.current || 0,
-        d30: aging.thirtyPlus || 0,
-        d60: aging.sixtyPlus || 0,
-        d90: aging.ninetyPlus || 0
+        current: backendAging.current || 0,
+        d30: backendAging.thirtyPlus || 0,
+        d60: backendAging.sixtyPlus || 0,
+        d90: backendAging.ninetyPlus || 0
       });
 
-      // profileRes usually comes from Axios directly, so it needs .data
       const dbCustomer = profileRes?.data?.data?.customer || profileRes?.data?.customer;
       
       if (dbCustomer) {
@@ -42,7 +44,8 @@ export function useLedger(customerId, currentUserRole) {
           company: dbCustomer.companyName || 'Unknown', 
           gst: dbCustomer.gstNumber || 'N/A', 
           address: dbCustomer.address || 'N/A', 
-          manager: dbCustomer.manager?.name || 'Unassigned' 
+          manager: dbCustomer.manager?.name || 'Unassigned',
+          managerId: dbCustomer.manager?._id || '' 
         });
       }
     } catch (error) {
@@ -58,46 +61,47 @@ export function useLedger(customerId, currentUserRole) {
   }, [customerId, currentUserRole, fetchLedgerData]);
 
   const handleEditClick = (row) => {
-    setEditingId(row._id || row.id);
+    setEditingId(row?._id || row?.id);
+    
     if (currentUserRole === 'admin') {
       setAdminFormData({
-        date: row.date ? new Date(row.date).toISOString().split('T')[0] : '',
-        desc: row.description || row.desc,
-        ref: row.invoiceNo || row.bankInfo?.utrReference || '',
-        debit: row.debit?.toString() || '',
-        credit: row.credit?.toString() || '',
-        remarks: row.remarks || ''
+        date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
+        desc: row?.description || row?.desc,
+        ref: row?.invoiceNo || row?.bankInfo?.utrReference || '',
+        debit: row?.debit?.toString() || '',
+        credit: row?.credit?.toString() || '',
+        remarks: row?.remarks || '',
+        isUsingAdvance: row?.isUsingAdvance || false,
+        billId: row?.allocations?.[0]?.billId || '' // Preserve bill link if it exists
       });
     } else {
+      // 💡 THE FIX: For employees, map the existing pending payment data back into the form!
       setSalesFormData({
-        date: new Date().toISOString().split('T')[0],
-        amount: row.credit?.toString() || '',
-        utr: row.bankInfo?.utrReference || row.invoiceNo || '',
-        bank: row.bankInfo?.bankName || '',
-        remarks: row.remarks || ''
+        date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
+        amount: row?.credit?.toString() || '', // Employees edit their pending CREDIT payments
+        utr: row?.bankInfo?.utrReference || '',
+        bank: row?.bankInfo?.bankName || '',
+        remarks: row?.remarks || '',
+        billId: row?.allocations?.[0]?.billId || "", // Preserve bill link if it exists
+        isUsingAdvance: row?.isUsingAdvance || false,
       });
     }
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const resetForms = () => {
+const resetForms = () => {
     setEditingId(null);
-    setAdminFormData({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '' });
-    setSalesFormData({ date: '', amount: '', utr: '', bank: '', remarks: '' });
+    setAdminFormData({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, billId: '' });
+    setSalesFormData({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
   };
-
-  const totals = (ledgerData || []).filter(row => row.status === 'approved').reduce((acc, row) => {
-    acc.debit += (Number(row?.debit) || 0);
-    acc.credit += (Number(row?.credit) || 0);
-    return acc;
-  }, { debit: 0, credit: 0 });
 
   return {
     isLoading,
     customerProfile,
     ledgerData,
     agingTotals,
-    totals,
+    totals: dashboardTotals, 
     editingId,
     adminFormData,
     salesFormData,

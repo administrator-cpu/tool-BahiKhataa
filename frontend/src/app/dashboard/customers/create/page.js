@@ -79,6 +79,15 @@ export default function CreateCustomerPage() {
               onChange={handleChange}
               placeholder="e.g. Reliance Industries Ltd."
             />
+            <InputField
+              className="sm:col-span-2"
+              label="Registered Company Email"
+              name="email"
+              required
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="e.g. abc@company.com"
+            />
 
             <InputField
               icon={Receipt}

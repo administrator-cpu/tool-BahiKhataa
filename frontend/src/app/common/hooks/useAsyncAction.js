@@ -29,10 +29,9 @@ export function useAsyncAction() {
       
       return result;
     } catch (error) {
-      // Handle Error automatically
-      toast.error(error.message || errorMessage, { id: toastId });
-      // We throw the error in case the component still needs to know it failed
-      throw error; 
+      console.log(error.response?.data?.message);
+      toast.error(error.response?.data?.message || errorMessage, { id: toastId });
+      throw error.response?.data?.message; 
     } finally {
       setIsLoading(false);
     }

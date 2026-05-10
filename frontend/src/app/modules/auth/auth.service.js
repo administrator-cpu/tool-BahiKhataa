@@ -44,5 +44,5 @@ export const authService = {
      console.log(response);
      return response
     
-  }
+  },
 };

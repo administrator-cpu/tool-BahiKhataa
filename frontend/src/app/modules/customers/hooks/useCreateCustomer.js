@@ -17,7 +17,8 @@ export function useCreateCustomer() {
     companyName: '', 
     gst: '', 
     manager: '', 
-    address: '' 
+    address: '' ,
+    email:"",
   });
   const [activeManagers, setActiveManagers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
