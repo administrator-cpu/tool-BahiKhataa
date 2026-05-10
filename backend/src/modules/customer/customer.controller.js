@@ -68,11 +68,9 @@ export const editCustomer = catchAsync(async (req, res, next) => {
 });
 
 export const getMyCustomers = catchAsync(async (req, res, next) => {
-  console.log(req.user._id);
   const userId = req.user._id || req.user.id;
 
   const customers = await Customer.find({ manager: userId });
-  console.log(customers);
 
   res.status(200).json({
     status: "success",
