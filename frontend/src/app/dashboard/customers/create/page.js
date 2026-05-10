@@ -83,7 +83,6 @@ export default function CreateCustomerPage() {
               className="sm:col-span-2"
               label="Registered Company Email"
               name="email"
-              required
               value={formData.email}
               onChange={handleChange}
               placeholder="e.g. abc@company.com"
@@ -93,7 +92,6 @@ export default function CreateCustomerPage() {
               icon={Receipt}
               label="GST Number"
               name="gst"
-              required
               maxLength={15}
               value={formData.gst}
               onChange={handleChange}
