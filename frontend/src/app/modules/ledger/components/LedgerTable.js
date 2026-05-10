@@ -9,6 +9,7 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  IndianRupee,
 } from "lucide-react";
 import { safeFormatCurrency } from "@/app/common/lib/utils";
 
@@ -17,6 +18,7 @@ export default function LedgerTable({
   editingId,
   onEditClick,
   onDelete,
+  onPayClick,
   onApprove,
   onReject,
   currentUserRole,
@@ -124,73 +126,66 @@ export default function LedgerTable({
                   </td>
 
                   {/* Actions & Status */}
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-1 transition-opacity opacity-0 group-hover:opacity-100">
-                      {currentUserRole === "admin" ? (
-                        row.status === "pending" ? (
-                          // Admin: Pending Actions
-                          <>
-                            <button
-                              onClick={() => onApprove(row._id || row.id)}
-                              className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg"
-                              title="Approve"
-                            >
-                              <CheckCircle size={16} />
-                            </button>
-                            <button
-                              onClick={() => onReject(row._id || row.id)}
-                              className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
-                              title="Reject"
-                            >
-                              <XCircle size={16} />
-                            </button>
-                          </>
+                 <td className="px-6 py-4">
+                    {/* Use justify-between to push the badge left and buttons right */}
+                    <div className="flex items-center justify-between gap-2">
+                      
+                      {/* 💡 ALWAYS VISIBLE STATUS BADGE */}
+                      <div>
+                        {row.status === "pending" && (
+                          <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold tracking-wider text-amber-600 uppercase bg-amber-100/50 border border-amber-200 rounded-lg">
+                            <Clock size={12} /> Pending
+                          </span>
+                        )}
+                        {row.status === "rejected" && (
+                          <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold tracking-wider text-red-600 uppercase bg-red-50 border border-red-200 rounded-lg">
+                            <XCircle size={12} /> Rejected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* HOVER ACTIONS */}
+                      <div className="flex items-center gap-1 transition-opacity opacity-0 group-hover:opacity-100">
+                        
+                        {/* Pay Bill Button */}
+                        {row.debit > 0 && row.balanceDue > 0 && row.status === "approved" && (
+                          <button
+                            onClick={() => onPayClick(row)}
+                            className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg mr-2"
+                            title="Log Payment Against This Bill"
+                          >
+                            <IndianRupee size={16} />
+                          </button>
+                        )}
+
+                        {currentUserRole === "admin" ? (
+                          row.status === "pending" ? (
+                            // Admin: Pending Actions
+                            <>
+                              <button onClick={() => onApprove(row._id || row.id)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg" title="Approve"><CheckCircle size={16} /></button>
+                              <button onClick={() => onReject(row._id || row.id)} className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg" title="Reject"><XCircle size={16} /></button>
+                            </>
+                          ) : (
+                            // Admin: Approved Actions
+                            <>
+                              {!(row.debit > 0 && row.amountPaid > 0) && (
+                                <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Entry"><Edit size={16} /></button>
+                              )}
+                              <button onClick={() => onDelete(row._id || row.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete Entry"><Trash2 size={16} /></button>
+                            </>
+                          )
                         ) : (
-                          // Admin: Approved Actions
-                          <>
-                            {/* Hide Edit if it's a Debit with applied payments */}
-                            {!(row.debit > 0 && row.amountPaid > 0) && (
-                              <button
-                                onClick={() => onEditClick(row)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                                title="Edit Entry"
-                              >
-                                <Edit size={16} />
-                              </button>
-                            )}
-                            {/* Admin can attempt to delete anything (backend handles safety restrictions) */}
-                            <button
-                              onClick={() => onDelete(row._id || row.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                              title="Delete Entry"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </>
-                        )
-                      ) : (
-                        // Employee: Can ONLY Edit & Delete their pending entries
-                        row.status === "pending" && (
-                          <>
-                            <button
-                              onClick={() => onEditClick(row)}
-                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                              title="Edit Request"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button
-                              onClick={() => onDelete(row._id || row.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                              title="Delete Request"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </>
-                        )
-                      )}
+                          // Employee: Can ONLY Edit & Delete their pending entries
+                          row.status === "pending" && (
+                            <>
+                              <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Request"><Edit size={16} /></button>
+                              <button onClick={() => onDelete(row._id || row.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete Request"><Trash2 size={16} /></button>
+                            </>
+                          )
+                        )}
+                      </div>
                     </div>
-                  </td>
+                  </td>`
                 </tr>
               ))
             ) : (

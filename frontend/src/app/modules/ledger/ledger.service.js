@@ -42,4 +42,13 @@ export const ledgerService = {
   assignManager: async (customerId, managerId) => {
     return await apiClient.patch(`/customers/${customerId}/assign-manager`, { managerId });
   },
+  downloadExcel: async (customerId) => {
+     const data = await apiClient.get(`/customers/${customerId}/excel`, { responseType: 'blob' });
+     console.log(data);
+     
+     return data
+  },
+  downloadPDF: async (customerId) => {
+    return await apiClient.get(`/customers/${customerId}/pdf`, { responseType: 'blob' });
+  }
 };

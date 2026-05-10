@@ -169,6 +169,74 @@ export default function CustomerLedger() {
     );
   };
 
+  const handleDownloadExcel = async () => {
+    await execute(
+      async () => {
+        const response = await ledgerService.downloadExcel(customerId);
+        // Create a temporary link to download the binary data
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        // Construct a clean filename
+        const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
+        link.setAttribute('download', `${safeName}_Ledger.xlsx`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      },
+      { loadingMessage: 'Generating Excel...', successMessage: 'Excel downloaded!' }
+    ).catch(() => {});
+  };
+
+  const handleDownloadPDF = async () => {
+    await execute(
+      async () => {
+        console.log(customerId);
+        
+        const response = await ledgerService.downloadPDF(customerId);
+        console.log(response);
+        
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+        const link = document.createElement('a');
+        link.href = url;
+        const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
+        link.setAttribute('download', `${safeName}_Ledger.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      },
+      { loadingMessage: 'Generating PDF...', successMessage: 'PDF downloaded!' }
+    ).catch(() => {});
+  };
+
+  const handlePayClick = (row) => {
+    resetForms(); // Clear editingId, because this is a NEW entry
+    
+    if (currentUserRole === 'admin') {
+      setAdminFormData({
+        date: new Date().toISOString().split('T')[0],
+        desc: `Payment for ${row.invoiceNo || 'Bill'}`,
+        ref: '',
+        debit: '',
+        credit: row.balanceDue?.toString() || row.debit?.toString() || '',
+        remarks: '',
+        billId: row._id || row.id, // Attach the bill ID!
+        isUsingAdvance: false
+      });
+    } else {
+      setSalesFormData({
+        date: new Date().toISOString().split('T')[0],
+        amount: row.balanceDue?.toString() || row.debit?.toString() || '',
+        utr: '',
+        bank: '',
+        remarks: '',
+        billId: row._id || row.id, // Attach the bill ID!
+        isUsingAdvance: false
+      });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   if (isLoading || !customerProfile) {
     return (
       <DashboardLayout>
@@ -266,13 +334,13 @@ export default function CustomerLedger() {
               {/* 💡 NEW: Export Actions */}
               <div className="flex items-center gap-2 mt-1">
                 <button 
-                  onClick={() => alert("Excel download coming soon!")}
+                  onClick={handleDownloadExcel}
                   className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
                 >
                   <FileSpreadsheet size={16} /> Excel
                 </button>
                 <button 
-                  onClick={() => alert("PDF download coming soon!")}
+                  onClick={handleDownloadPDF}
                   className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
                 >
                   <FileDown size={16} /> PDF
@@ -282,7 +350,7 @@ export default function CustomerLedger() {
         </div>
 
         {/* FORMS */}
-        {currentUserRole === 'admin' ? (
+       {currentUserRole === 'admin' ? (
           <LedgerEntryForm 
             formData={adminFormData} 
             onChange={(e) => setAdminFormData(p => ({...p, [e.target.name]: e.target.value}))}
@@ -291,16 +359,28 @@ export default function CustomerLedger() {
             onCancel={resetForms} 
             isSubmitting={isSubmitting} 
           />
-        ) : editingId ? (
-          <SalesPaymentForm 
-            formData={salesFormData} 
-            onChange={(e) => setSalesFormData(p => ({...p, [e.target.name]: e.target.value}))}
-            onSubmit={handleSalesSubmit} 
-            isSubmitting={isSubmitting} 
-          />
+        ) : (editingId || salesFormData.billId) ? (
+          <div className="relative">
+            <SalesPaymentForm 
+              formData={salesFormData} 
+              onChange={(e) => setSalesFormData(p => ({...p, [e.target.name]: e.target.value}))}
+              onSubmit={handleSalesSubmit} 
+              isSubmitting={isSubmitting} 
+            />
+            {/* 💡 NEW: Cancel button so employees can close the form */}
+            <div className="absolute top-4 right-4">
+              <button 
+                type="button" 
+                onClick={resetForms} 
+                className="text-xs font-bold text-slate-500 hover:text-slate-900 bg-white px-3 py-1.5 rounded-lg border shadow-sm"
+              >
+                Cancel 
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="bg-blue-50 border border-blue-100 rounded-3xl p-6 text-center text-blue-700 font-medium flex items-center justify-center gap-2">
-            <Info size={18} /> Click the Edit icon on a row to log a payment.
+            <Info size={18} /> Click the Pay (₹) icon on a bill or the Edit icon to log a payment.
           </div>
         )}
 
@@ -311,6 +391,7 @@ export default function CustomerLedger() {
           onEditClick={handleEditClick} 
           onDelete={handleDeleteEntry}
           currentUserRole={currentUserRole}
+          onPayClick={handlePayClick}
           onApprove={handleApproveLog}
           onReject={handleRejectClick}
           agingTotals={agingTotals} 

@@ -86,9 +86,9 @@ export function useLedger(customerId, currentUserRole) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const resetForms = () => {
+const resetForms = () => {
     setEditingId(null);
-    setAdminFormData({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false });
+    setAdminFormData({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, billId: '' });
     setSalesFormData({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
   };
 
