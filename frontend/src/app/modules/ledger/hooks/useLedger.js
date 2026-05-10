@@ -62,6 +62,7 @@ export function useLedger(customerId, currentUserRole) {
 
   const handleEditClick = (row) => {
     setEditingId(row?._id || row?.id);
+    
     if (currentUserRole === 'admin') {
       setAdminFormData({
         date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
@@ -71,18 +72,21 @@ export function useLedger(customerId, currentUserRole) {
         credit: row?.credit?.toString() || '',
         remarks: row?.remarks || '',
         isUsingAdvance: row?.isUsingAdvance || false,
+        billId: row?.allocations?.[0]?.billId || '' // Preserve bill link if it exists
       });
     } else {
+      // 💡 THE FIX: For employees, map the existing pending payment data back into the form!
       setSalesFormData({
-        date: new Date().toISOString().split('T')[0],
-        amount: row.balanceDue?.toString() || row.debit?.toString() || '', // 💡 Pre-fill with remaining balance
-        utr: '',
-        bank: '',
-        remarks: '',
-        billId: row._id, // 💡 Link the payment to this specific invoice
-        isUsingAdvance: false,
+        date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
+        amount: row?.credit?.toString() || '', // Employees edit their pending CREDIT payments
+        utr: row?.bankInfo?.utrReference || '',
+        bank: row?.bankInfo?.bankName || '',
+        remarks: row?.remarks || '',
+        billId: row?.allocations?.[0]?.billId || "", // Preserve bill link if it exists
+        isUsingAdvance: row?.isUsingAdvance || false,
       });
     }
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

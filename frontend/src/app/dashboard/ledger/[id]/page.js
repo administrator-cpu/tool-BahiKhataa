@@ -77,25 +77,36 @@ export default function CustomerLedger() {
     );
   };
 
-  // 3. Admin Submit (Create / Edit)
-  const handleAdminSubmit = async (e) => {
+// 3. Admin Submit (Create / Edit)
+const handleAdminSubmit = async (e) => {
     e.preventDefault();
+    const payload = {
+      date: adminFormData.date,
+      description: adminFormData.desc,
+      invoiceNo: adminFormData.ref,
+      debit: adminFormData.debit,
+      credit: adminFormData.credit,
+      remarks: adminFormData.remarks,
+      isUsingAdvance: adminFormData.isUsingAdvance,
+      billId: adminFormData.billId
+    };
+
     if (editingId) {
       await execute(
-        () => ledgerService.editLedgerEntry(editingId, adminFormData),
+        () => ledgerService.editLedgerEntry(editingId, payload),
         {
           successMessage: 'Entry updated successfully!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => {});
     } else {
       await execute(
-        () => ledgerService.addDirectEntry({ ...adminFormData, customer: customerId }),
+        () => ledgerService.addDirectEntry({ ...payload, customer: customerId }),
         {
           successMessage: 'Entry saved!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => {});
     }
   };
 
@@ -216,7 +227,7 @@ export default function CustomerLedger() {
       setAdminFormData({
         date: new Date().toISOString().split('T')[0],
         desc: `Payment for ${row.invoiceNo || 'Bill'}`,
-        ref: '',
+        ref: row?.invoiceNo,
         debit: '',
         credit: row.balanceDue?.toString() || row.debit?.toString() || '',
         remarks: '',

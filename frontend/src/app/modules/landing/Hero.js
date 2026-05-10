@@ -56,7 +56,7 @@ const Hero = () => {
                             <span className="text-xs md:text-sm font-medium text-slate-600">Powerd</span>
                         </motion.div> */}
 
-                        <motion.h1 variants={itemVariants} className="text-4xl md:text-5xl lg:text-7xl font-bold text-slate-900 leading-[1.15] mb-6">
+                        <motion.h1 variants={itemVariants} className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 leading-[1.15] mb-6">
                             The Modern way to <br className="hidden md:block" />
                             <span className="text-blue-600">Track Business Dues.</span>
                         </motion.h1>
