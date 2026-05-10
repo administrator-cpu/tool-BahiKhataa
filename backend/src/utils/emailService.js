@@ -22,7 +22,7 @@ export const sendPaymentAdjustmentEmail = async (paymentLog) => {
 
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-        <p>Dear ${customer.companyName},</p>
+        <p>Dear Customer,</p>
         <p>Greetings from Fab5 !!</p>
         <p>This is to inform you that we have adjusted your recent payment of <b>₹${paymentLog.credit}</b> against the outstanding invoices.</p>
         <p>After the above adjustment, the balance outstanding amount as of date is <b>${balanceText}</b></p>
