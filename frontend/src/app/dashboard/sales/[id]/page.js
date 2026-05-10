@@ -30,17 +30,21 @@ export default function SalesManagerLedger() {
         // Fetch only the Portfolio data
         const portfolioRes = await customerService.getManagerPortfolio(managerId);
 
+        console.log(portfolioRes?.data?.data?.portfolio);
+        
         // Map the backend Portfolio data to fit the CustomerTable
-        setAssignedClients(portfolioRes.data.data.portfolio.map(c => ({
+        setAssignedClients(portfolioRes.data.data.portfolio.map(c => (
+          {
+          
           id: c.id || c._id,
-          company: c.company,
+          company: c.name,
           manager: c.managerName || 'Unassigned',
           managerId: c.managerId || 'none',
-          outstanding: c.outstanding || 0,
-          current: c.current || 0,
-          d30: c.d30 || 0,
-          d60: c.d60 || 0,
-          d90: c.d90 || 0
+          outstanding: c?.aging?.total || 0,
+          current: c?.aging?.current || 0,
+          d30: c?.aging?.thirtyPlus || 0,
+          d60: c?.aging?.sixtyPlus || 0,
+          d90: c?.aging?.ninetyPlus || 0
         })));
 
       } catch (error) {
@@ -103,7 +107,7 @@ export default function SalesManagerLedger() {
           <h2 className="flex items-center gap-2 mb-4 text-lg font-bold text-slate-900">
             <Building2 size={20} className="text-blue-600" /> Assigned Portfolio
           </h2>
-          <CustomerTable customers={assignedClients} currentUserRole="admin" />
+          <CustomerTable customers={assignedClients} currentUserRole="employee" />
         </div>
       </div>
       
