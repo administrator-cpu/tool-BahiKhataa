@@ -64,8 +64,6 @@ export default function CustomerLedger() {
   const handleManagerChange = async (e) => {
     const newManagerId = e.target.value;
     if (!newManagerId) return;
-    console.log(customerId, newManagerId);
-    
 
     await execute(
       () => ledgerService.assignManager(customerId, newManagerId),
@@ -74,13 +72,16 @@ export default function CustomerLedger() {
         successMessage: 'Manager successfully assigned!',
         onSuccess: () => refresh() 
       }
-    );
+    ).catch(() => {});
   };
 
-// 3. Admin Submit (Create / Edit)
-const handleAdminSubmit = async (e) => {
+  // 3. Admin Submit (Create / Edit)
+  const handleAdminSubmit = async (e) => {
     e.preventDefault();
-    const payload = {
+    
+    // Explicitly map frontend 'ref' to backend 'invoiceNo'
+    
+const payload = {
       date: adminFormData.date,
       description: adminFormData.desc,
       invoiceNo: adminFormData.ref,
@@ -88,10 +89,14 @@ const handleAdminSubmit = async (e) => {
       credit: adminFormData.credit,
       remarks: adminFormData.remarks,
       isUsingAdvance: adminFormData.isUsingAdvance,
-      billId: adminFormData.billId
-    };
+      billId: adminFormData.billId,
+      bankInfo: {
+        bankName: adminFormData.bankName,
+        utrReference: adminFormData.utrReference
+      }
+    }
 
-    if (editingId) {
+if (editingId) {
       await execute(
         () => ledgerService.editLedgerEntry(editingId, payload),
         {
@@ -110,7 +115,8 @@ const handleAdminSubmit = async (e) => {
     }
   };
 
-  // 4. Sales Submit (Create / Edit)
+  
+
   const handleSalesSubmit = async (e) => {
     e.preventDefault();
     if (editingId) {
@@ -126,7 +132,7 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Pending request updated!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => {});
     } else {
       await execute(
         () => ledgerService.addPendingPayment({ ...salesFormData, customerId }),
@@ -134,11 +140,10 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Submitted for approval!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => {});
     }
   };
 
-  // 5. Delete Entry Handler
   const handleDeleteEntry = async (id) => {
     if (!window.confirm("Are you sure you want to delete this entry? If this is an approved payment, related invoice balances will be reversed.")) {
       return; 
@@ -149,10 +154,9 @@ const handleAdminSubmit = async (e) => {
         successMessage: 'Entry deleted successfully!',
         onSuccess: () => { resetForms(); refresh(); }
       }
-    );
+    ).catch(() => {});
   };
 
-  // 6. Approval & Rejection Handlers
   const handleApproveLog = async (logId) => {
     await execute(
       () => ledgerService.reviewPendingLog(logId, 'approve'),
@@ -160,7 +164,7 @@ const handleAdminSubmit = async (e) => {
         successMessage: 'Log approved successfully!',
         onSuccess: () => refresh()
       }
-    );
+    ).catch(() => {});
   };
 
   const handleRejectClick = (logId) => {
@@ -177,18 +181,17 @@ const handleAdminSubmit = async (e) => {
           refresh();
         }
       }
-    );
+    ).catch(() => {});
   };
 
+  // 7. Download Handlers
   const handleDownloadExcel = async () => {
     await execute(
       async () => {
         const response = await ledgerService.downloadExcel(customerId);
-        // Create a temporary link to download the binary data
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
-        // Construct a clean filename
         const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
         link.setAttribute('download', `${safeName}_Ledger.xlsx`);
         document.body.appendChild(link);
@@ -202,11 +205,7 @@ const handleAdminSubmit = async (e) => {
   const handleDownloadPDF = async () => {
     await execute(
       async () => {
-        console.log(customerId);
-        
         const response = await ledgerService.downloadPDF(customerId);
-        console.log(response);
-        
         const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
         const link = document.createElement('a');
         link.href = url;
@@ -220,19 +219,21 @@ const handleAdminSubmit = async (e) => {
     ).catch(() => {});
   };
 
-  const handlePayClick = (row) => {
+const handlePayClick = (row) => {
     resetForms(); // Clear editingId, because this is a NEW entry
     
     if (currentUserRole === 'admin') {
       setAdminFormData({
         date: new Date().toISOString().split('T')[0],
         desc: `Payment for ${row.invoiceNo || 'Bill'}`,
-        ref: row?.invoiceNo,
+        ref: row?.invoiceNo || '',
         debit: '',
         credit: row.balanceDue?.toString() || row.debit?.toString() || '',
         remarks: '',
-        billId: row._id || row.id, // Attach the bill ID!
-        isUsingAdvance: false
+        billId: row._id || row.id, 
+        isUsingAdvance: false,
+        bankName: '',     // 💡 Force admin to enter Bank Name
+        utrReference: ''  // 💡 Force admin to enter UTR
       });
     } else {
       setSalesFormData({
@@ -241,7 +242,7 @@ const handleAdminSubmit = async (e) => {
         utr: '',
         bank: '',
         remarks: '',
-        billId: row._id || row.id, // Attach the bill ID!
+        billId: row._id || row.id, 
         isUsingAdvance: false
       });
     }
@@ -342,7 +343,7 @@ const handleAdminSubmit = async (e) => {
                 <p className="text-4xl font-black text-slate-900">{safeFormatCurrency(totals.outstanding)}</p>
               </div>
 
-              {/* 💡 NEW: Export Actions */}
+              {/* Export Actions */}
               <div className="flex items-center gap-2 mt-1">
                 <button 
                   onClick={handleDownloadExcel}
@@ -361,7 +362,7 @@ const handleAdminSubmit = async (e) => {
         </div>
 
         {/* FORMS */}
-       {currentUserRole === 'admin' ? (
+        {currentUserRole === 'admin' ? (
           <LedgerEntryForm 
             formData={adminFormData} 
             onChange={(e) => setAdminFormData(p => ({...p, [e.target.name]: e.target.value}))}
@@ -378,7 +379,7 @@ const handleAdminSubmit = async (e) => {
               onSubmit={handleSalesSubmit} 
               isSubmitting={isSubmitting} 
             />
-            {/* 💡 NEW: Cancel button so employees can close the form */}
+            {/* Cancel button so employees can close the form */}
             <div className="absolute top-4 right-4">
               <button 
                 type="button" 
