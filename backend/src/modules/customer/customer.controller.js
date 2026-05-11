@@ -8,16 +8,16 @@ import PDFDocument from 'pdfkit-table';
 export const createCustomer = catchAsync(async (req, res, next) => {
   const { companyName, address, gstNumber, email, manager } = req.body;
 
-  // if (!manager) {
-  //   return next(new AppError('Please assign a manager to this customer.', 400));
-  // }
+  if (!manager) {
+    return next(new AppError('Please assign a manager to this customer.', 400));
+  }
 
   const newCustomer = await Customer.create({
     companyName,
     address,
     gstNumber,
-    email,
-    manager: manager || null,
+    email: email || null,
+    manager: manager,
   });
 
   res.status(201).json({
@@ -68,11 +68,9 @@ export const editCustomer = catchAsync(async (req, res, next) => {
 });
 
 export const getMyCustomers = catchAsync(async (req, res, next) => {
-  console.log(req.user._id);
   const userId = req.user._id || req.user.id;
 
   const customers = await Customer.find({ manager: userId });
-  console.log(customers);
 
   res.status(200).json({
     status: "success",

@@ -22,7 +22,6 @@ const customerSchema = new mongoose.Schema({
     trim: true,
     lowercase: true,
     trim: true,
-    required: [true, "Please enter the Customer email"],
   },
   manager: {
     type: mongoose.Schema.ObjectId,
