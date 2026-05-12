@@ -13,6 +13,7 @@ const customerSchema = new mongoose.Schema({
   },
   gstNumber: {
     type: String,
+    sparse: true,
     // unique: true,
     uppercase: true,
     trim: true
