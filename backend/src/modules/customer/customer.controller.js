@@ -11,11 +11,12 @@ export const createCustomer = catchAsync(async (req, res, next) => {
   if (!manager) {
     return next(new AppError('Please assign a manager to this customer.', 400));
   }
+  const cleanedGst = gstNumber && gstNumber.trim() !== "" ? gstNumber : undefined;
 
   const newCustomer = await Customer.create({
     companyName,
     address,
-    gstNumber,
+    gstNumber: cleanedGst,
     email: email || null,
     manager: manager,
   });
