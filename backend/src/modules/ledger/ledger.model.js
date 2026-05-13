@@ -10,7 +10,7 @@ const ledgerSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'Transaction date is required']
   },
-  description: { type: String, trim: true },
+  description: { type: String },
   invoiceNo: { type: String, trim: true, default: null },
   debit: {
     type: Number,
@@ -22,13 +22,16 @@ const ledgerSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Credit cannot be a negative value']
   },
+  advanceAmount: { 
+    type: Number, 
+    default: 0 
+  },
   bankInfo: {
-    bankName: { type: String, trim: true },
+    bankName: { type: String },
     utrReference: { type: String, trim: true }
   },
   remarks: {
     type: String,
-    trim: true,
     default: null
   },
   status: {
@@ -41,9 +44,13 @@ const ledgerSchema = new mongoose.Schema({
     type: mongoose.Schema.ObjectId,
     ref: 'User'
   },
-  rejectedReason: {
+  rejectedBy: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
+    default: null
+  },
+  rejectedReason: {
+    type: String,
     default: null
   },
   paymentStatus: {
@@ -52,18 +59,18 @@ const ledgerSchema = new mongoose.Schema({
     default: 'Unpaid'
   },
   amountPaid: { type: Number, default: 0 },
-  balanceDue: { 
-    type: Number, 
-    default: function() { return this.debit; } 
+  balanceDue: {
+    type: Number,
+    default: function () { return this.debit; }
   },
   paymentsReceived: [{
     paymentId: { type: mongoose.Schema.ObjectId, ref: 'Ledger' },
     amountApplied: { type: Number },
     date: { type: Date, default: Date.now }
   }],
-  unallocatedAmount: { 
+  unallocatedAmount: {
     type: Number,
-    default: function() { return this.credit; } 
+    default: function () { return this.credit; }
   },
   isUsingAdvance: { type: Boolean, default: false },
   allocations: [{
@@ -89,12 +96,12 @@ ledgerSchema.statics.getAgingReport = async function (customerId) {
   });
 
   const now = new Date();
-  const buckets = { 
-    total: 0, 
-    current: 0, 
-    thirtyPlus: 0, 
-    sixtyPlus: 0, 
-    ninetyPlus: 0, 
+  const buckets = {
+    total: 0,
+    current: 0,
+    thirtyPlus: 0,
+    sixtyPlus: 0,
+    ninetyPlus: 0,
     availableAdvance: 0
   };
 
@@ -115,14 +122,14 @@ ledgerSchema.statics.getAgingReport = async function (customerId) {
 
   const Customer = mongoose.model('Customer');
   const customer = await Customer.findById(customerId).select('availableAdvance');
-  
+
   if (customer && customer.availableAdvance > 0) {
     buckets.availableAdvance = customer.availableAdvance;
+    buckets.total -= customer.availableAdvance;
   }
 
   return buckets;
 };
-
 
 const Ledger = mongoose.model('Ledger', ledgerSchema);
 

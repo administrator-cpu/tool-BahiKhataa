@@ -48,8 +48,8 @@ export default function SalesPaymentForm({ formData, onChange, onSubmit, isSubmi
                 <div className="relative">
                   <select name="bank" required value={formData.bank} onChange={onChange} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition-all text-slate-900 appearance-none cursor-pointer">
                     <option value="" disabled>Select mode...</option>
-                    <option value="Kotak">Kotak</option>
-                    <option value="Yes">Yes Bank</option>
+                    <option value="Kotak Mahindra Bank">Kotak</option>
+                    <option value="Yes Bank">Yes Bank</option>
                     <option value="Credit Card">Credit Card</option>
                     <option value="Payment Gateway">Payment Gateway</option>
                     <option value="Others">Others</option>
