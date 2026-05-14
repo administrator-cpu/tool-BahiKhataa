@@ -1,27 +1,77 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, CheckCheck, Circle, CreditCard, FileText, Info, X } from 'lucide-react';
+import { Bell, CheckCheck, Circle, CreditCard, FileText, Info, X, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ledgerService } from '@/app/modules/ledger/ledger.service';
+import { useRouter } from 'next/navigation';
+
+// Helper to calculate "5 mins ago", "2 hours ago", etc.
+const timeAgo = (dateString) => {
+    if (!dateString) return '';
+    const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " mins ago";
+    return "Just now";
+};
+
+// Fallback currency formatter just in case it's not imported
+const formatMoney = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount || 0);
 
 export default function NotificationMenu() {
     const [isOpen, setIsOpen] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    const router = useRouter();
 
+    const loadq = async () => {
+        try {
+            const { data } = await ledgerService.getPendingQueue();
+            const logs = data?.data?.logs || [];
 
-    // Sample data
-    const [notifications, setNotifications] = useState([
-       
-    ]);
-   const loadq=async ()=>{
-        const {data} = await ledgerService.getPendingQueue()
-        console.log(data?.data?.logs);
-   }
+            // Transform backend data into UI Notifications
+            const formattedNotifications = logs.map(item => {
+                const isCredit = Number(item.credit) > 0;
+                const amount = isCredit ? item.credit : item.debit;
+                const company = item.customer?.companyName || 'Unknown Customer';
+                
+                let title = 'New Notification';
+                let message = item.description || 'View details';
+                let type = 'info';
 
-    useEffect( () => {
-        
-        loadq()
+                // Format based on the pending status
+                if (item.status === 'pending') {
+                    title = isCredit ? 'Pending Payment Approval' : 'Pending Invoice Approval';
+                    message = `${company} has a pending ${isCredit ? 'payment' : 'bill'} of ${formatMoney(amount)} via ${item.bankInfo?.bankName || 'System'}.`;
+                    type = 'pending';
+                }
 
+                return {
+                    id: item._id,
+                    type: type,
+                    title: title,
+                    message: message,
+                    time: timeAgo(item.updatedAt || item.createdAt),
+                    isRead: false,
+                    customerId: item.customer?._id || item.customer?.id // Grab the customer ID for redirection
+                };
+            });
 
-    }, [])
+            setNotifications(formattedNotifications);
+        } catch (error) {
+            console.error("Failed to fetch notifications:", error);
+        }
+    };
+
+    // Load data on mount
+    useEffect(() => {
+        loadq();
+    }, []);
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
@@ -47,10 +97,20 @@ export default function NotificationMenu() {
         ));
     };
 
+    // 💡 Handle Click: Mark read, Close drawer, Redirect!
+    const handleNotificationClick = (notification) => {
+        markAsRead(notification.id);
+        setIsOpen(false);
+        if (notification.customerId) {
+            router.push(`/dashboard/ledger/${notification.customerId}`);
+        }
+    };
+
     const getIcon = (type) => {
         switch (type) {
             case 'payment': return <CreditCard size={18} className="text-green-600" />;
             case 'invoice': return <FileText size={18} className="text-blue-600" />;
+            case 'pending': return <Clock size={18} className="text-orange-500" />; // 💡 Added Pending Icon
             default: return <Info size={18} className="text-slate-600" />;
         }
     };
@@ -86,7 +146,7 @@ export default function NotificationMenu() {
                             onClick={() => setIsOpen(false)}
                         />
 
-                        {/* Sliding Panel (Slides in/out with Spring physics) */}
+                        {/* Sliding Panel */}
                         <motion.div
                             initial={{ x: '100%' }}
                             animate={{ x: 0 }}
@@ -101,7 +161,7 @@ export default function NotificationMenu() {
                                     <h3 className="text-lg font-black text-slate-800 tracking-tight">Notifications</h3>
                                     {unreadCount > 0 && (
                                         <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                                            {unreadCount} New
+                                            {unreadCount} Pending
                                         </span>
                                     )}
                                 </div>
@@ -125,14 +185,14 @@ export default function NotificationMenu() {
                                 </div>
                             </div>
 
-                            {/* Notification List (Scrollable Area) */}
+                            {/* Notification List */}
                             <div className="flex-1 overflow-y-auto customScroller p-2">
                                 {notifications.length > 0 ? (
                                     <div className="space-y-1">
                                         {notifications.map((notification) => (
                                             <div
                                                 key={notification.id}
-                                                onClick={() => markAsRead(notification.id)}
+                                                onClick={() => handleNotificationClick(notification)}
                                                 className={`flex items-start gap-4 p-4 rounded-2xl cursor-pointer transition-all ${!notification.isRead
                                                         ? 'bg-blue-50/50 hover:bg-blue-50 border border-blue-100/50 shadow-sm'
                                                         : 'hover:bg-slate-50 border border-transparent'
@@ -167,18 +227,10 @@ export default function NotificationMenu() {
                                             <Bell size={40} className="text-slate-300" />
                                         </div>
                                         <p className="text-lg font-bold text-slate-600">You're all caught up!</p>
-                                        <p className="text-sm font-medium">No new notifications to show right now.</p>
+                                        <p className="text-sm font-medium">No pending approvals right now.</p>
                                     </div>
                                 )}
                             </div>
-
-                            {/* Footer */}
-                            {/* <div className="p-4 border-t border-slate-100 bg-white">
-                                <button className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-sm font-bold text-slate-600 rounded-xl transition-colors">
-                                    View Notification Settings
-                                </button>
-                            </div> */}
-
                         </motion.div>
                     </div>
                 )}

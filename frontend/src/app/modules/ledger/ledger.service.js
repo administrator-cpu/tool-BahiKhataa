@@ -41,6 +41,10 @@ export const ledgerService = {
   getPendingQueue: async () => {
     return await apiClient.get(`/ledger/pending`);
   },
+  getLedgerEntryDetails: async (id) => {
+    const {data}= await apiClient.get(`/ledger/${id}`);
+    return data
+  },
   assignManager: async (customerId, managerId) => {
     return await apiClient.patch(`/customers/${customerId}/assign-manager`, { managerId });
   },
