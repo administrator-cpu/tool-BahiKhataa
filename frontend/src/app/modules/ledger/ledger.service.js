@@ -25,7 +25,6 @@ export const ledgerService = {
   },
 
   getCustomerDashboard: async (customerId) => {
-    // 💡 REMOVED pagination params for now to match your new backend controller
     const { data } = await apiClient.get(`/ledger/${customerId}/dashboard`);
     return data;
   },
@@ -38,6 +37,9 @@ export const ledgerService = {
   },
   deleteLedgerEntry: async (id) => {
     return await apiClient.delete(`/ledger/${id}`);
+  },
+  getPendingQueue: async () => {
+    return await apiClient.get(`/ledger/pending`);
   },
   assignManager: async (customerId, managerId) => {
     return await apiClient.patch(`/customers/${customerId}/assign-manager`, { managerId });
