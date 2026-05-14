@@ -48,7 +48,6 @@ export default function CustomerLedger() {
     refresh 
   } = useLedger(customerId, currentUserRole);
 
-  // 1. Fetch Employees for the Assign Manager Dropdown (Admin Only)
   useEffect(() => {
     if (currentUserRole === 'admin') {
       userService.getEmployees()
@@ -60,7 +59,6 @@ export default function CustomerLedger() {
     }
   }, [currentUserRole]);
 
-  // 2. Assign Manager Handler
   const handleManagerChange = async (e) => {
     const newManagerId = e.target.value;
     if (!newManagerId) return;
@@ -79,8 +77,6 @@ export default function CustomerLedger() {
   const handleAdminSubmit = async (e) => {
     e.preventDefault();
     
-    // Explicitly map frontend 'ref' to backend 'invoiceNo'
-    
 const payload = {
       date: adminFormData.date,
       description: adminFormData.desc,
@@ -90,6 +86,7 @@ const payload = {
       remarks: adminFormData.remarks,
       isUsingAdvance: adminFormData.isUsingAdvance,
       billId: adminFormData.billId,
+      allocations: adminFormData.allocations,
       bankInfo: {
         bankName: adminFormData.bankName,
         utrReference: adminFormData.utrReference
@@ -218,9 +215,10 @@ if (editingId) {
       { loadingMessage: 'Generating PDF...', successMessage: 'PDF downloaded!' }
     ).catch(() => {});
   };
+  const unpaidInvoices = ledgerData.filter(row => row.debit > 0 && row.balanceDue > 0 && row.status === 'approved');
 
 const handlePayClick = (row) => {
-    resetForms(); // Clear editingId, because this is a NEW entry
+    resetForms(); 
     
     if (currentUserRole === 'admin') {
       setAdminFormData({
@@ -232,8 +230,8 @@ const handlePayClick = (row) => {
         remarks: '',
         billId: row._id || row.id, 
         isUsingAdvance: false,
-        bankName: '',     // 💡 Force admin to enter Bank Name
-        utrReference: ''  // 💡 Force admin to enter UTR
+        bankName: '',     
+        utrReference: '' 
       });
     } else {
       setSalesFormData({
@@ -369,7 +367,8 @@ const handlePayClick = (row) => {
             onSubmit={handleAdminSubmit} 
             editingId={editingId} 
             onCancel={resetForms} 
-            isSubmitting={isSubmitting} 
+            isSubmitting={isSubmitting}
+            unpaidInvoices={unpaidInvoices}
           />
         ) : (editingId || salesFormData.billId) ? (
           <div className="relative">
@@ -379,7 +378,6 @@ const handlePayClick = (row) => {
               onSubmit={handleSalesSubmit} 
               isSubmitting={isSubmitting} 
             />
-            {/* Cancel button so employees can close the form */}
             <div className="absolute top-4 right-4">
               <button 
                 type="button" 

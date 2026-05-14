@@ -28,7 +28,6 @@ export function useCustomers() {
           
         let rawCustomers = response?.data?.data?.customers||response?.data?.data?.portfolio || response?.data?.customers || response?.customers || [];
 
-        console.log(rawCustomers);
         
 
         const formattedData = rawCustomers.map(c => ({

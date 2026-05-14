@@ -22,9 +22,7 @@ export default function LedgerTable({
   onApprove,
   onReject,
   currentUserRole,
-  // Note: We no longer need totalDebit or totalCredit from props!
 }) {
-  // 💡 NEW: Calculate totals ONLY for 'approved' rows
   const approvedDebitTotal = ledgerData.reduce((sum, row) => {
     return row.status === "approved" ? sum + (Number(row.debit) || 0) : sum;
   }, 0);
@@ -56,7 +54,6 @@ export default function LedgerTable({
                   key={row._id || row.id}
                   className={`transition-colors group ${editingId === (row._id || row.id) ? "bg-blue-50/50" : "hover:bg-slate-50/50"}`}
                 >
-                  {/* Date */}
                   <td className="px-6 py-4">
                     <p className="font-bold text-slate-900">
                       {row.date
@@ -69,7 +66,6 @@ export default function LedgerTable({
                     </p>
                   </td>
 
-                  {/* Details */}
 
                   <td className="px-6 py-4">
                     <div className="flex items-start gap-3">
@@ -91,7 +87,6 @@ export default function LedgerTable({
                             </span>
                           )}
 
-                          {/* 💡 NEW: Show Payment Status for Invoices (Debits) */}
                           {row.debit > 0 && row.status === "approved" && (
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${
@@ -117,7 +112,6 @@ export default function LedgerTable({
                     </div>
                   </td>
 
-                  {/* Financials */}
                   <td className="px-6 py-4 font-medium text-right text-slate-900">
                     {row.debit > 0 ? safeFormatCurrency(row.debit) : "-"}
                   </td>
@@ -125,12 +119,9 @@ export default function LedgerTable({
                     {row.credit > 0 ? safeFormatCurrency(row.credit) : "-"}
                   </td>
 
-                  {/* Actions & Status */}
                  <td className="px-6 py-4">
-                    {/* Use justify-between to push the badge left and buttons right */}
                     <div className="flex items-center justify-between gap-2">
                       
-                      {/* 💡 ALWAYS VISIBLE STATUS BADGE */}
                       <div>
                         {row.status === "pending" && (
                           <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold tracking-wider text-amber-600 uppercase bg-amber-100/50 border border-amber-200 rounded-lg">
@@ -144,10 +135,8 @@ export default function LedgerTable({
                         )}
                       </div>
 
-                      {/* HOVER ACTIONS */}
                       <div className="flex items-center gap-1 transition-opacity opacity-0 group-hover:opacity-100">
                         
-                        {/* Pay Bill Button */}
                         {row.debit > 0 && row.balanceDue > 0 && row.status === "approved" && (
                           <button
                             onClick={() => onPayClick(row)}
@@ -160,13 +149,11 @@ export default function LedgerTable({
 
                         {currentUserRole === "admin" ? (
                           row.status === "pending" ? (
-                            // Admin: Pending Actions
                             <>
                               <button onClick={() => onApprove(row._id || row.id)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg" title="Approve"><CheckCircle size={16} /></button>
                               <button onClick={() => onReject(row._id || row.id)} className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg" title="Reject"><XCircle size={16} /></button>
                             </>
                           ) : (
-                            // Admin: Approved Actions
                             <>
                               {!(row.debit > 0 && row.amountPaid > 0) && (
                                 <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Entry"><Edit size={16} /></button>
@@ -175,7 +162,6 @@ export default function LedgerTable({
                             </>
                           )
                         ) : (
-                          // Employee: Can ONLY Edit & Delete their pending entries
                           row.status === "pending" && (
                             <>
                               <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Request"><Edit size={16} /></button>
@@ -185,7 +171,7 @@ export default function LedgerTable({
                         )}
                       </div>
                     </div>
-                  </td>`
+                  </td>
                 </tr>
               ))
             ) : (
@@ -210,11 +196,9 @@ export default function LedgerTable({
                 Running Totals (Approved Only)
               </td>
               <td className="px-6 py-5 font-bold text-right text-white border-x border-slate-800">
-                {/* 💡 Use the new calculated value here */}
                 {safeFormatCurrency(approvedDebitTotal)}
               </td>
               <td className="px-6 py-5 font-bold text-right text-green-400 border-r border-slate-800">
-                {/* 💡 Use the new calculated value here */}
                 {safeFormatCurrency(approvedCreditTotal)}
               </td>
               <td className="px-6 py-5 bg-slate-800/20"></td>

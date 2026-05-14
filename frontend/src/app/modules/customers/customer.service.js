@@ -23,12 +23,10 @@ export const customerService = {
   // Maps to: GET /api/customers/me (Employee)
   getMyCustomers: async () => {
      const data=  await apiClient.get('/customers/portfolio');
-     console.log(data);
      
      return data
   },
   updateCustomer: async (customerId, updatedData) => {
-    console.log(updatedData);
     
     const response = await apiClient.patch(`/customers/${customerId}`, updatedData);
     return response.data;

@@ -44,8 +44,6 @@ export const ledgerService = {
   },
   downloadExcel: async (customerId) => {
      const data = await apiClient.get(`/customers/${customerId}/excel`, { responseType: 'blob' });
-     console.log(data);
-     
      return data
   },
   downloadPDF: async (customerId) => {

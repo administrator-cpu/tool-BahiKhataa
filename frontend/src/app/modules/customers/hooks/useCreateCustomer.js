@@ -32,7 +32,6 @@ export function useCreateCustomer() {
       const fetchManagers = async () => {
         try {
           const { data } = await userService.getEmployees();
-          console.log("Managers fetched:", data);
           
           // Added a fallback to ensure it doesn't crash if the backend response shape changes slightly
           setActiveManagers(data?.data?.users || data?.users || []);

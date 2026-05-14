@@ -5,9 +5,8 @@ import { customerService } from '../customer.service';
 import { useParams } from 'next/navigation';
 
 export default function EditCustomerModal({ currentCustomer, onClose, onRefresh }) {
- const {id}= useParams()
+ const {id} = useParams();
 
-  
   const submitCustomer = async (formData) => {
     await customerService.updateCustomer(id, formData);
     alert("Customer updated successfully!");
@@ -15,13 +14,14 @@ export default function EditCustomerModal({ currentCustomer, onClose, onRefresh 
     onClose();   
   };
 
- 
+  
 
   const { formData, handleChange, handleSubmit, isLoading, error } = useForm(
     {
-      companyName: currentCustomer?.company || '',
+      companyName: currentCustomer?.company || currentCustomer?.companyName || '',
       address: currentCustomer?.address || '',
-      gstNumber: currentCustomer?.gst || '',
+      gstNumber: currentCustomer?.gst || currentCustomer?.gstNumber || '',
+      email: currentCustomer?.email || '',
       isActive: currentCustomer?.isActive ?? true,
     },
     submitCustomer
@@ -45,8 +45,16 @@ export default function EditCustomerModal({ currentCustomer, onClose, onRefresh 
           required 
           placeholder="e.g. Acme Corp"
         />
+
+        <Input 
+          label="Email Address" 
+          name="email" 
+          type="email"
+          value={formData.email} 
+          onChange={handleChange} 
+          placeholder="e.g. contact@acmecorp.com"
+        />
         
-        {/* We use a standard textarea here since we didn't build a <TextArea /> component yet! */}
         <div>
           <label className="block mb-1 text-sm font-medium text-gray-700">Address *</label>
           <textarea
@@ -80,8 +88,6 @@ export default function EditCustomerModal({ currentCustomer, onClose, onRefresh 
             Customer is Active
           </label>
         </div>
-
-        {/* Form Actions */}
         <div className="flex justify-end pt-4 space-x-3 border-t">
           <button type="button" onClick={onClose} disabled={isLoading} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50">
             Cancel

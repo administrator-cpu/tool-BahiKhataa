@@ -29,7 +29,6 @@ export function useAsyncAction() {
       
       return result;
     } catch (error) {
-      console.log(error.response?.data?.message);
       toast.error(error.response?.data?.message || errorMessage, { id: toastId });
       throw error.response?.data?.message; 
     } finally {

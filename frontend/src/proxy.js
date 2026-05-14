@@ -7,7 +7,6 @@ export function proxy(request) {
   const role = request.cookies.get('role')?.value;
   
 
-  console.log(`MW CHECK: Path [${url}] | Token [${token ? 'YES' : 'NO'}] | Role [${role || 'None'}]`);
 
   // ==========================================
   // RULE 1: Dashboard is for logged-in users only

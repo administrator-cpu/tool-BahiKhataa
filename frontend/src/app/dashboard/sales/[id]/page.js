@@ -30,7 +30,6 @@ export default function SalesManagerLedger() {
         // Fetch only the Portfolio data
         const portfolioRes = await customerService.getManagerPortfolio(managerId);
 
-        console.log(portfolioRes?.data?.data?.portfolio);
         
         // Map the backend Portfolio data to fit the CustomerTable
         setAssignedClients(portfolioRes.data.data.portfolio.map(c => (
