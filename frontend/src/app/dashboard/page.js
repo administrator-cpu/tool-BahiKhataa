@@ -105,7 +105,7 @@ export default function UnifiedDashboard() {
             icon={LogOut}
             onClick={() => logout()}
           ></Button>
-      <NotificationMenu/>
+     {userRole === "admin" && <NotificationMenu/>}
 
         </div>
       </div>
