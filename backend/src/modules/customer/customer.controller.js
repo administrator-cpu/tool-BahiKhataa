@@ -12,6 +12,13 @@ export const createCustomer = catchAsync(async (req, res, next) => {
     return next(new AppError('Please assign a manager to this customer.', 400));
   }
 
+  const existingCustomer = await Customer.findOne({ 
+    companyName: companyName.toUpperCase() 
+  });
+  if (existingCustomer) {
+    return next(new AppError(`A customer with the name "${companyName.toUpperCase()}" already exists.`, 409));
+  }
+
   const newCustomer = await Customer.create({
     companyName,
     address,

@@ -4,7 +4,9 @@ const customerSchema = new mongoose.Schema({
   companyName: {
     type: String,
     required: [true, "Please enter the company name"],
-    trim: true
+    trim: true,
+    uppercase: true,
+    unique: true
   },
   address: {
     type: String,
