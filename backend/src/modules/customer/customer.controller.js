@@ -361,7 +361,9 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     totalCredit += creditAmt;
 
     let particulars = log.description || '-';
-    if (log.credit > 0 && log.bankInfo?.bankName) {
+    if (log.debit > 0 && log.invoiceNo) {
+      particulars = `${log.description} - ${log.invoiceNo}`;
+    } else if (log.credit > 0 && log.bankInfo?.bankName) {
       particulars = `Receipt By ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(' + log.bankInfo.utrReference + ')' : ''}`;
     }
 
