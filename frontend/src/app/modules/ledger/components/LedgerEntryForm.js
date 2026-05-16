@@ -112,7 +112,7 @@ export default function LedgerEntryForm({
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-5">
           <InputField className="sm:col-span-2" label="Date" type="date" name="date" required value={formData.date} onChange={onChange} />
           <InputField className="sm:col-span-4" label="Description" name="desc" required placeholder={isDebitTab ? "e.g. Sales Invoice" : "e.g. Payment Received"} value={formData.desc} onChange={onChange} />
-          {/* <InputField className="sm:col-span-2" label={isDebitTab ? "Invoice No." : "Ref No."} name="ref" placeholder="Internal Reference" value={formData.ref} onChange={onChange} /> */}
+           <InputField className="sm:col-span-2" label={isDebitTab ? "Invoice No." : "Ref No."} name="ref" placeholder="Internal Reference" value={formData.ref} onChange={onChange} /> 
   
           {isDebitTab && (
             <InputField className="sm:col-span-6 font-bold" label="Debit (Dr) / Sale Value (₹)" type="number" name="debit" placeholder="0.00" value={formData.debit} onChange={onChange} required />
