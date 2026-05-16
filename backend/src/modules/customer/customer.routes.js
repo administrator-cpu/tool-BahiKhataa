@@ -13,7 +13,6 @@ const router = express.Router();
 router.use(protect);
 
 router.get('/portfolio', restrictTo('employee', 'admin'), getPortfolioDashboard);
-
 router.get('/me', restrictTo('employee', 'admin'), getMyCustomers);
 router.post('/', restrictTo('admin'), createCustomer);
 router.get('/', restrictTo('admin', 'employee'), getMainDashboard);

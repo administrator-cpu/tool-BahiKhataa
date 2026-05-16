@@ -1,6 +1,7 @@
 "use client";
 
 import FloatingBackButton from '@/app/common/components/FloatingBackButton';
+import NotificationMenu from '../components/NotificationDrawer';
 
 export default function DashboardLayout({ children, breadcrumbs, hideBack = false }) {
 

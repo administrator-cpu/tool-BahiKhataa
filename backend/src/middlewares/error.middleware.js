@@ -1,8 +1,17 @@
 import logger from "../utils/logger.js";
 
+const handleJWTError = () => new AppError('Invalid token. Please log in again!', 401);
+const handleJWTExpiredError = () => new AppError('Your token has expired! Please log in again.', 401);
+
 export const globalErrorHandler = (err, req, res, next) => {
   const isDev = process.env.NODE_ENV === "development";
-  
+
+  let error = { ...err };
+  error.message = err.message;
+  error.name = err.name;
+
+  if (error.name === 'JsonWebTokenError') error = handleJWTError();
+  if (error.name === 'TokenExpiredError') error = handleJWTExpiredError();
   if (err.name === "ValidationError") {
     const message = Object.values(err.errors).map(e => e.message).join(", ");
     return res.status(400).json({ success: false, message });

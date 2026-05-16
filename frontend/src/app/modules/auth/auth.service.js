@@ -29,19 +29,16 @@ export const authService = {
 
   forgotPassword: async (email) => {
      const data =await apiClient.post('/auth/forgot-password', { email });
-     console.log(data);
      
      return data
   },
   verifyOtp: async (data) => {
    const response= await apiClient.post('/auth/verify-otp', data);
-    console.log(response);
      
      return response
   },
   resetPassword: async (data) => {
      const response= await apiClient.patch('/auth/reset-password', data);
-     console.log(response);
      return response
     
   },

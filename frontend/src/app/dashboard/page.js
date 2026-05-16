@@ -12,6 +12,7 @@ import { useCustomers } from "../modules/customers/hooks/useCustomers";
 import Button from "../common/components/Button";
 import DashboardLayout from "../common/layout/DashboardLayout";
 import CustomerTable from "../modules/customers/components/CustomerTable";
+import NotificationMenu from "../common/components/NotificationDrawer";
 
 export default function UnifiedDashboard() {
   const router = useRouter();
@@ -104,6 +105,8 @@ export default function UnifiedDashboard() {
             icon={LogOut}
             onClick={() => logout()}
           ></Button>
+     {userRole === "admin" && <NotificationMenu/>}
+
         </div>
       </div>
 

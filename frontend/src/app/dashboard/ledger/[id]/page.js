@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';  
+import React, { useState, useEffect } from 'react';
 import { Receipt, UserCircle, MapPin, Loader2, Info, Edit, FileSpreadsheet, FileDown } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -27,7 +27,7 @@ export default function CustomerLedger() {
   const { id: customerId } = useParams();
   const { userRole: currentUserRole } = useAuth();
   const { execute, isLoading: isSubmitting } = useAsyncAction();
-  
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [rejectModal, setRejectModal] = useState({ isOpen: false, logId: null });
   const [employees, setEmployees] = useState([]);
@@ -45,10 +45,9 @@ export default function CustomerLedger() {
     setSalesFormData,
     handleEditClick,
     resetForms,
-    refresh 
+    refresh
   } = useLedger(customerId, currentUserRole);
 
-  // 1. Fetch Employees for the Assign Manager Dropdown (Admin Only)
   useEffect(() => {
     if (currentUserRole === 'admin') {
       userService.getEmployees()
@@ -60,26 +59,24 @@ export default function CustomerLedger() {
     }
   }, [currentUserRole]);
 
-  // 2. Assign Manager Handler
   const handleManagerChange = async (e) => {
     const newManagerId = e.target.value;
     if (!newManagerId) return;
-    console.log(customerId, newManagerId);
-    
 
     await execute(
       () => ledgerService.assignManager(customerId, newManagerId),
       {
         loadingMessage: 'Assigning manager...',
         successMessage: 'Manager successfully assigned!',
-        onSuccess: () => refresh() 
+        onSuccess: () => refresh()
       }
-    );
+    ).catch(() => { });
   };
 
-// 3. Admin Submit (Create / Edit)
-const handleAdminSubmit = async (e) => {
+  // 3. Admin Submit (Create / Edit)
+  const handleAdminSubmit = async (e) => {
     e.preventDefault();
+
     const payload = {
       date: adminFormData.date,
       description: adminFormData.desc,
@@ -88,8 +85,13 @@ const handleAdminSubmit = async (e) => {
       credit: adminFormData.credit,
       remarks: adminFormData.remarks,
       isUsingAdvance: adminFormData.isUsingAdvance,
-      billId: adminFormData.billId
-    };
+      billId: adminFormData.billId,
+      allocations: adminFormData.allocations,
+      bankInfo: {
+        bankName: adminFormData.bankName,
+        utrReference: adminFormData.utrReference
+      }
+    }
 
     if (editingId) {
       await execute(
@@ -98,7 +100,7 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Entry updated successfully!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      ).catch(() => {});
+      ).catch(() => { });
     } else {
       await execute(
         () => ledgerService.addDirectEntry({ ...payload, customer: customerId }),
@@ -106,11 +108,12 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Entry saved!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      ).catch(() => {});
+      ).catch(() => { });
     }
   };
 
-  // 4. Sales Submit (Create / Edit)
+
+
   const handleSalesSubmit = async (e) => {
     e.preventDefault();
     if (editingId) {
@@ -126,7 +129,7 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Pending request updated!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => { });
     } else {
       await execute(
         () => ledgerService.addPendingPayment({ ...salesFormData, customerId }),
@@ -134,14 +137,13 @@ const handleAdminSubmit = async (e) => {
           successMessage: 'Submitted for approval!',
           onSuccess: () => { resetForms(); refresh(); }
         }
-      );
+      ).catch(() => { });
     }
   };
 
-  // 5. Delete Entry Handler
   const handleDeleteEntry = async (id) => {
     if (!window.confirm("Are you sure you want to delete this entry? If this is an approved payment, related invoice balances will be reversed.")) {
-      return; 
+      return;
     }
     await execute(
       () => ledgerService.deleteLedgerEntry(id),
@@ -149,10 +151,9 @@ const handleAdminSubmit = async (e) => {
         successMessage: 'Entry deleted successfully!',
         onSuccess: () => { resetForms(); refresh(); }
       }
-    );
+    ).catch(() => { });
   };
 
-  // 6. Approval & Rejection Handlers
   const handleApproveLog = async (logId) => {
     await execute(
       () => ledgerService.reviewPendingLog(logId, 'approve'),
@@ -160,7 +161,7 @@ const handleAdminSubmit = async (e) => {
         successMessage: 'Log approved successfully!',
         onSuccess: () => refresh()
       }
-    );
+    ).catch(() => { });
   };
 
   const handleRejectClick = (logId) => {
@@ -177,18 +178,17 @@ const handleAdminSubmit = async (e) => {
           refresh();
         }
       }
-    );
+    ).catch(() => { });
   };
 
+  // 7. Download Handlers
   const handleDownloadExcel = async () => {
     await execute(
       async () => {
         const response = await ledgerService.downloadExcel(customerId);
-        // Create a temporary link to download the binary data
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
-        // Construct a clean filename
         const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
         link.setAttribute('download', `${safeName}_Ledger.xlsx`);
         document.body.appendChild(link);
@@ -196,17 +196,13 @@ const handleAdminSubmit = async (e) => {
         link.remove();
       },
       { loadingMessage: 'Generating Excel...', successMessage: 'Excel downloaded!' }
-    ).catch(() => {});
+    ).catch(() => { });
   };
 
   const handleDownloadPDF = async () => {
     await execute(
       async () => {
-        console.log(customerId);
-        
         const response = await ledgerService.downloadPDF(customerId);
-        console.log(response);
-        
         const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
         const link = document.createElement('a');
         link.href = url;
@@ -217,22 +213,25 @@ const handleAdminSubmit = async (e) => {
         link.remove();
       },
       { loadingMessage: 'Generating PDF...', successMessage: 'PDF downloaded!' }
-    ).catch(() => {});
+    ).catch(() => { });
   };
+  const unpaidInvoices = ledgerData.filter(row => row.debit > 0 && row.balanceDue > 0 && row.status === 'approved');
 
   const handlePayClick = (row) => {
-    resetForms(); // Clear editingId, because this is a NEW entry
-    
+    resetForms();
+
     if (currentUserRole === 'admin') {
       setAdminFormData({
         date: new Date().toISOString().split('T')[0],
         desc: `Payment for ${row.invoiceNo || 'Bill'}`,
-        ref: row?.invoiceNo,
+        ref: row?.invoiceNo || '',
         debit: '',
         credit: row.balanceDue?.toString() || row.debit?.toString() || '',
         remarks: '',
-        billId: row._id || row.id, // Attach the bill ID!
-        isUsingAdvance: false
+        billId: row._id || row.id,
+        isUsingAdvance: false,
+        bankName: '',
+        utrReference: ''
       });
     } else {
       setSalesFormData({
@@ -241,7 +240,7 @@ const handleAdminSubmit = async (e) => {
         utr: '',
         bank: '',
         remarks: '',
-        billId: row._id || row.id, // Attach the bill ID!
+        billId: row._id || row.id,
         isUsingAdvance: false
       });
     }
@@ -260,132 +259,133 @@ const handleAdminSubmit = async (e) => {
 
   return (
     <DashboardLayout breadcrumbs={<span className="font-bold">Ledger Overview</span>}>
-      
+
       {isEditModalOpen && (
-        <EditCustomerModal 
-            currentCustomer={customerProfile} 
-            onClose={() => setIsEditModalOpen(false)} 
-            isSubmitting={isSubmitting}
-            onRefresh={refresh} 
+        <EditCustomerModal
+          currentCustomer={customerProfile}
+          onClose={() => setIsEditModalOpen(false)}
+          isSubmitting={isSubmitting}
+          onRefresh={refresh}
         />
       )}
 
       {rejectModal.isOpen && (
-        <RejectLogModal 
+        <RejectLogModal
           onClose={() => setRejectModal({ isOpen: false, logId: null })}
           onConfirm={handleConfirmReject}
-          isSubmitting={isSubmitting} 
+          isSubmitting={isSubmitting}
         />
       )}
 
       <div className="space-y-6">
-        
-       {/* PROFILE CARD */}
+
+        {/* PROFILE CARD */}
         <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm flex flex-col lg:flex-row justify-between gap-8 relative overflow-hidden">
-           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-50" />
-           
-           <div className="flex flex-col sm:flex-row gap-6 relative z-10">
-              <div className="w-20 h-20 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-bold text-3xl shrink-0">
-                {customerProfile.company.charAt(0)}
-              </div>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-slate-900">{customerProfile.company}</h1>
-                  <button 
-                    onClick={() => setIsEditModalOpen(true)}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                    title="Edit Customer"
-                  >
-                    <Edit size={16} />
-                  </button>
-                </div>
-                
-                <div className="flex flex-wrap items-center gap-4">
-                   <div className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><Receipt size={14}/> {customerProfile.gst}</div>
-                   
-                   <div className="text-sm font-bold text-blue-600 flex items-center gap-1.5">
-                     <UserCircle size={14}/> 
-                     {currentUserRole === 'admin' ? (
-                       <select 
-                         value={customerProfile.managerId}
-                         onChange={handleManagerChange}
-                         disabled={isSubmitting}
-                         className="bg-blue-50 border border-blue-200 text-blue-700 py-1 px-2 rounded-lg text-xs outline-none cursor-pointer hover:bg-blue-100 transition-colors disabled:opacity-50"
-                       >
-                         <option value="" disabled>Unassigned</option>
-                         {employees.map(emp => (
-                           <option key={emp._id || emp.id} value={emp._id || emp.id}>
-                             {emp.name}
-                           </option>
-                         ))}
-                       </select>
-                     ) : (
-                       <span>{customerProfile.manager}</span>
-                     )}
-                   </div>
-                </div>
-                <div className="text-sm text-slate-500 flex items-center gap-1.5"><MapPin size={14}/> {customerProfile.address}</div>
-              </div>
-           </div>
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-50" />
 
-           {/* TOTALS & ACTIONS */}
-           <div className="flex flex-col gap-3 relative z-10 min-w-[250px]">
-              {totals.availableAdvance > 0 && (
-                <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100 text-right shadow-sm">
-                  <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">Available Advance</p>
-                  <p className="text-xl font-black text-purple-700">{safeFormatCurrency(totals.availableAdvance)}</p>
-                </div>
-              )}
-              
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-right shadow-sm">
-                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Net Outstanding</p>
-                <p className="text-4xl font-black text-slate-900">{safeFormatCurrency(totals.outstanding)}</p>
-              </div>
-
-              {/* 💡 NEW: Export Actions */}
-              <div className="flex items-center gap-2 mt-1">
-                <button 
-                  onClick={handleDownloadExcel}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
+          <div className="flex flex-col sm:flex-row gap-6 relative z-10">
+            <div className="w-20 h-20 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-bold text-3xl shrink-0">
+              {customerProfile.company.charAt(0)}
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-slate-900">{customerProfile.company}</h1>
+                <button
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                  title="Edit Customer"
                 >
-                  <FileSpreadsheet size={16} /> Excel
-                </button>
-                <button 
-                  onClick={handleDownloadPDF}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
-                >
-                  <FileDown size={16} /> PDF
+                  <Edit size={16} />
                 </button>
               </div>
-           </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><Receipt size={14} /> {customerProfile.gst}</div>
+
+                <div className="text-sm font-bold text-blue-600 flex items-center gap-1.5">
+                  <UserCircle size={14} />
+                  {currentUserRole === 'admin' ? (
+                    <select
+                      value={customerProfile.managerId}
+                      onChange={handleManagerChange}
+                      disabled={isSubmitting}
+                      className="bg-blue-50 border border-blue-200 text-blue-700 py-1 px-2 rounded-lg text-xs outline-none cursor-pointer hover:bg-blue-100 transition-colors disabled:opacity-50"
+                    >
+                      <option value="" disabled>Unassigned</option>
+                      {employees.map(emp => (
+                        <option key={emp._id || emp.id} value={emp._id || emp.id}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>{customerProfile.manager}</span>
+                  )}
+                </div>
+              </div>
+              <div className="text-sm text-slate-500 flex items-center gap-1.5"><MapPin size={14} /> {customerProfile.address}</div>
+            </div>
+          </div>
+
+          {/* TOTALS & ACTIONS */}
+          <div className="flex flex-col gap-3 relative z-10 min-w-[250px]">
+            {totals.availableAdvance > 0 && (
+              <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100 text-right shadow-sm">
+                <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">Available Advance</p>
+                <p className="text-xl font-black text-purple-700">{safeFormatCurrency(totals.availableAdvance)}</p>
+              </div>
+            )}
+
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-right shadow-sm">
+              <p className="text-xs font-bold text-slate-400 uppercase mb-2">Net Outstanding</p>
+              <p className="text-4xl font-black text-slate-900">{safeFormatCurrency(totals.outstanding)}</p>
+            </div>
+
+            {/* Export Actions */}
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={handleDownloadExcel}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                <FileSpreadsheet size={16} /> Excel
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                <FileDown size={16} /> PDF
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* FORMS */}
-       {currentUserRole === 'admin' ? (
-          <LedgerEntryForm 
-            formData={adminFormData} 
-            onChange={(e) => setAdminFormData(p => ({...p, [e.target.name]: e.target.value}))}
-            onSubmit={handleAdminSubmit} 
-            editingId={editingId} 
-            onCancel={resetForms} 
-            isSubmitting={isSubmitting} 
+        {currentUserRole === 'admin' ? (
+          <LedgerEntryForm
+            formData={adminFormData}
+            onChange={(e) => setAdminFormData(p => ({ ...p, [e.target.name]: e.target.value }))}
+            onSubmit={handleAdminSubmit}
+            editingId={editingId}
+            onCancel={resetForms}
+            isSubmitting={isSubmitting}
+            unpaidInvoices={unpaidInvoices}
           />
         ) : (editingId || salesFormData.billId) ? (
           <div className="relative">
-            <SalesPaymentForm 
-              formData={salesFormData} 
-              onChange={(e) => setSalesFormData(p => ({...p, [e.target.name]: e.target.value}))}
-              onSubmit={handleSalesSubmit} 
-              isSubmitting={isSubmitting} 
+            <SalesPaymentForm
+              formData={salesFormData}
+              onChange={(e) => setSalesFormData(p => ({ ...p, [e.target.name]: e.target.value }))}
+              onSubmit={handleSalesSubmit}
+              isSubmitting={isSubmitting}
+              unpaidInvoices={unpaidInvoices}
             />
-            {/* 💡 NEW: Cancel button so employees can close the form */}
             <div className="absolute top-4 right-4">
-              <button 
-                type="button" 
-                onClick={resetForms} 
+              <button
+                type="button"
+                onClick={resetForms}
                 className="text-xs font-bold text-slate-500 hover:text-slate-900 bg-white px-3 py-1.5 rounded-lg border shadow-sm"
               >
-                Cancel 
+                Cancel
               </button>
             </div>
           </div>
@@ -396,16 +396,16 @@ const handleAdminSubmit = async (e) => {
         )}
 
         {/* TABLE */}
-        <LedgerTable 
-          ledgerData={ledgerData} 
-          editingId={editingId} 
-          onEditClick={handleEditClick} 
+        <LedgerTable
+          ledgerData={ledgerData}
+          editingId={editingId}
+          onEditClick={handleEditClick}
           onDelete={handleDeleteEntry}
           currentUserRole={currentUserRole}
           onPayClick={handlePayClick}
           onApprove={handleApproveLog}
           onReject={handleRejectClick}
-          agingTotals={agingTotals} 
+          agingTotals={agingTotals}
         />
       </div>
     </DashboardLayout>

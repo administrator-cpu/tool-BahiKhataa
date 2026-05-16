@@ -11,7 +11,6 @@ import { useCustomerTotals } from '../hooks/useCustomerTotals';
 
 export default function CustomerTable({ customers = [], currentUserRole }) {
 
-  console.log(customers);
   
   const router = useRouter();
   

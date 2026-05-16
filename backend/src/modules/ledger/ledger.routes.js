@@ -6,7 +6,8 @@ import {
   reviewPendingLog, 
   addDirectEntry, 
   getCustomerDashboard, 
-  getPendingQueue
+  getPendingQueue,
+  getLedgerEntryDetails
 } from './ledger.controller.js';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 
@@ -20,5 +21,6 @@ router.delete('/:id', restrictTo('employee','admin'), deleteLedgerEntry);
 router.patch('/review/:id', restrictTo('admin'), reviewPendingLog);
 router.post('/entry', restrictTo('admin'), addDirectEntry);
 router.get('/:customerId/dashboard', restrictTo('admin', 'employee'), getCustomerDashboard);
+router.get("/:id", getLedgerEntryDetails);
 
 export default router;

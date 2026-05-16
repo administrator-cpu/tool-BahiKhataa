@@ -256,3 +256,145 @@ Stop and debug if:
 3. Payment flow with billId
 4. Advance usage flow
 5. Edge case handling (overpayment)
+
+
+<!-- After v1 of the App -->
+### New Changes 
+**UI Update (Ledger Table):** Update the Credit column to conditionally display `advanceAmount` (e.g., "₹10,000 (Adv)") when a payment is made using advance balance, ensuring the actual `credit` field remains `0` to prevent double-counting in the running totals.
+### Ledger Table UI Fix (Double-Entry Bug)
+To prevent advance applications from artificially inflating the total revenue, the backend now sends `credit: 0` and populates `advanceAmount` instead. 
+
+----
+
+### New Updates
+
+​1. The "Phantom Row" Concept (Crucial for UI)
+- When a customer overpays, the excess is stored in their availableAdvance pool.
+- When an employee later applies that advance to an unpaid invoice, the backend generates a `Clearing Document`.
+
+​-To prevent inflating the running totals (Double-Entry bug), the backend strictly returns `credit: 0` for these entries. The actual financial value is stored in advanceAmount.
+- ​These adjustment rows are `hidden by default` on the main Ledger Dashboard to keep the client's view clean.
+- They will appear when a `user clicks on an invoice` to view its detailed payment history.
+
+---
+
+2. API Endpoints & Payloads
+A. **Making a Payment with Allocations**
+- When making a standard payment, the user can select multiple open invoices. You will pass an allocations array in the request body.
+
+**Endpoint** `POST/api/ledger/entry (Admin) OR /api/ledger/payment (Employee)`
+
+**Payload**
+{
+  "customer": "65ab...cdef",
+  "date": "2026-05-13",
+  "credit": 12000,
+  "description": "Bulk payment",
+  "bankInfo": {
+    "bankName": "HDFC Bank",
+    "utrReference": "HDFC000123456"
+  },
+  "allocations": [
+    { "billId": "65bc...1111", "amountApplied": 4000 },
+    { "billId": "65bc...2222", "amountApplied": 6000 }
+  ]
+}
+*Note: The remaining ₹2,000 will automatically be routed to the customer's availableAdvance pool.*
+
+B. **Applying an Advance**
+- ​If the user clicks "Pay using Advance", send amount instead of credit, and flag isUsingAdvance. You do not need to send bank details.
+
+**Endpoint** `​POST /api/ledger/entry (Admin) OR /api/ledger/payment (Employee)`
+
+**Payload**
+{
+  "customer": "65ab...cdef",
+  "date": "2026-05-13",
+  "isUsingAdvance": true,
+  "amount": 1000,
+  "allocations": [
+    { "billId": "65bc...3333", "amountApplied": 1000 }
+  ]
+}
+
+C. **Fetching Entry Details (The Drill-Down Modal)**
+- When a user clicks on a specific row in the ledger, hit this endpoint to get the exact allocation history.
+
+**Endpoint** `GET /api/ledger/entry/:id`
+
+**Payload**
+💠 If the ID is an Invoice (Debit), the response will populate the paymentsReceived array.
+💠 ​If the ID is a Payment (Credit), the response will populate the allocations array.
+
+3. Frontend Implementation Guide
+A. **The Main Dashboard Running Totals**
+- Because the backend filters out advance applications and ensures credit: 0 on them, your frontend .reduce() function for the "Running Totals" bar does not need to change. Just sum the debit and credit columns as usual.
+
+B. **Rendering the Drill-Down UI (JSX/TSX Example)**
+- When rendering the details of an Invoice, map through the paymentsReceived array. Notice the conditional rendering to handle standard payments vs. advance applications.
+
+**How To Use**
+```
+// 🟢 Mapping Payments applied to an Invoice
+<div className="payment-history-container">
+  <h3 className="font-bold">Payment History</h3>
+  
+  {log.paymentsReceived.map((payment, index) => {
+    // 'paymentId' contains the populated transaction document
+    const source = payment.paymentId; 
+    
+    return (
+      <div key={index} className="flex justify-between border-b py-2">
+        <span>
+          {source.isUsingAdvance ? (
+             /* UI for Advance Adjustment */
+            <span className="text-blue-600 italic">
+              🗓 {new Date(source.date).toLocaleDateString()} - Applied from Customer Advance
+            </span>
+          ) : (
+             /* UI for Normal Cash Payment */
+            <span className="text-green-600">
+              🗓 {new Date(source.date).toLocaleDateString()} - Paid via {source.bankInfo?.bankName} (UTR: {source.bankInfo?.utrReference || 'N/A'})
+            </span>
+          )}
+        </span>
+        
+        {/* ALWAYS use amountApplied for the UI value, never source.credit */}
+        <span className="font-bold">
+          ₹{payment.amountApplied.toLocaleString('en-IN')}
+        </span>
+      </div>
+    );
+  })}
+</div>
+```
+
+```
+// 🟢 Mapping Invoices paid by a Credit/Payment
+<div className="allocation-history-container">
+  <h3 className="font-bold">Invoices Cleared by this Payment</h3>
+  
+  {log.allocations.map((alloc, index) => {
+    // 'billId' contains the populated invoice document
+    const bill = alloc.billId; 
+    
+    return (
+      <div key={index} className="flex justify-between border-b py-2">
+        <span className="text-gray-700">
+          🗓 {new Date(bill.date).toLocaleDateString()} - Invoice #{bill.invoiceNo} 
+          <span className="ml-2 text-xs bg-gray-200 px-2 rounded">
+             {bill.paymentStatus}
+          </span>
+        </span>
+        
+        <span className="font-bold">
+          ₹{alloc.amountApplied.toLocaleString('en-IN')}
+        </span>
+      </div>
+    );
+  })}
+</div>
+
+```
+🚨 Crucial Data Formatting Rule
+When mapping paymentsReceived or allocations, always print amountApplied as the monetary value. Never print the parent document's total credit or advanceAmount, because a single payment might have been split into fragments across multiple invoices.

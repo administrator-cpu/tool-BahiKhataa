@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-// import mongoSanitize from 'express-mongo-sanitize';
+import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 
 import logger from './utils/logger.js';
@@ -15,6 +15,15 @@ import customerRoutes from './modules/customer/customer.routes.js';
 import ledgerRoutes from './modules/ledger/ledger.routes.js';
 
 const app = express();
+
+const limiter = rateLimit({
+  max: 100, // Limit each IP to 100 requests
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  message: 'Too many requests from this IP, please try again in 15 minutes!',
+  handler: (req, res, next, options) => {
+    return next(new AppError(options.message, 429));
+  }
+});
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
@@ -41,12 +50,7 @@ app.options(/.*/, cors());
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "20kb" }));
 app.use(cookieParser());
-
-// app.use(mongoSanitize({
-//   onSanitize: ({ req, key }) => {
-//     logger.warn("Suspicious key detected in request and sanitized", { key, path: req.path, ip: req.ip });
-//   }
-// }));
+app.use('/api', limiter); 
 
 app.use(
   morgan(process.env.NODE_ENV === "production" ? "combined" : "dev", {
@@ -66,7 +70,7 @@ app.get("/health", (req, res) => {
 
 app.all(/.*/, (req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
-});;
+});
 
 app.use(globalErrorHandler);
 

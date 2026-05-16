@@ -15,6 +15,7 @@ const processPaymentAllocations = async (paymentLog) => {
       if (bill && bill.debit > 0) {
         bill.amountPaid += alloc.amountApplied;
         bill.balanceDue -= alloc.amountApplied;
+        bill.balanceDue = Math.round(bill.balanceDue * 100) / 100;
 
         if (bill.balanceDue <= 0) {
           bill.balanceDue = 0;
@@ -34,55 +35,102 @@ const processPaymentAllocations = async (paymentLog) => {
     }
   }
 
-  const unallocated = paymentLog.credit - totalAllocated;
-  paymentLog.unallocatedAmount = unallocated;
+  if (paymentLog.isUsingAdvance) {
+    const unallocated = paymentLog.advanceAmount - totalAllocated;
+    paymentLog.unallocatedAmount = unallocated;
 
-  if (unallocated > 0) {
-    const targetCustomer = await Customer.findById(paymentLog.customer);
-    if (targetCustomer) {
-      targetCustomer.availableAdvance += unallocated;
-      await targetCustomer.save();
+    if (unallocated > 0) {
+      const targetCustomer = await Customer.findById(paymentLog.customer);
+      if (targetCustomer) {
+        targetCustomer.availableAdvance += unallocated;
+        await targetCustomer.save();
+      }
+    }
+  } else {
+    const unallocated = paymentLog.credit - totalAllocated;
+    paymentLog.unallocatedAmount = unallocated;
+
+    if (unallocated > 0) {
+      const targetCustomer = await Customer.findById(paymentLog.customer);
+      if (targetCustomer) {
+        targetCustomer.availableAdvance += unallocated;
+        await targetCustomer.save();
+      }
     }
   }
 
   return paymentLog;
 };
+/* Asynchronous Save Risk(For Future) */
+/* MongoDB Transactions (session.startTransaction()). */
+/* This ensures that if any save fails, the entire batch rolls back. */
 
 export const addPendingPayment = catchAsync(async (req, res, next) => {
-  const { customer, paymentDate, amount, bankName, utrReference, remarks, billId, isUsingAdvance } = req.body;
+  const { customer, paymentDate, amount, bankName, utrReference, remarks, billId, isUsingAdvance, allocations } = req.body;
 
-  const targetCustomer = await Customer.findById(customer);
+  if (!customer || !paymentDate || !amount || (!isUsingAdvance && !bankName)) {
+    return next(new AppError('Please provide customer, paymentDate, amount, and bankName.', 400));
+  }
+  if (!billId && (!allocations || !allocations.length)) {
+    return next(new AppError('Please provide a bill against which the payment is to be settled.', 400));
+  }
+
+  const targetCustomer = await Customer.findById(customer).select('availableAdvance manager');
   if (!targetCustomer || targetCustomer.manager.toString() !== req.user.id) {
     return next(new AppError('Customer not found or not assigned to you', 404));
-  }
-  const bill = await Ledger.findById(billId);
-  if (!bill) {
-    return next(new AppError('Bill not found', 404));
   }
 
   if (isUsingAdvance && targetCustomer.availableAdvance < amount) {
     return next(new AppError('Customer does not have enough advance balance for this request.', 400));
   }
 
-  let preparedAllocations = [];
+  const activeAllocations = allocations?.length > 0 ? allocations : [{ billId, amountApplied: amount }];
+  const billIds = activeAllocations.map(a => a.billId);
+  const targetBills = await Ledger.find({
+    _id: { $in: billIds },
+    debit: { $gt: 0 },
+    balanceDue: { $gt: 0 }
+  });
+  const billMap = new Map(targetBills.map(b => [b._id.toString(), b]));
 
-  if (billId) {
-    const targetBill = await Ledger.findById(billId);
-    if (targetBill && targetBill.debit > 0) {
-      const amountToApply = Math.min(amount, targetBill.balanceDue);
+  let preparedAllocations = [];
+  let totalAllocatedRequested = 0;
+
+  for (const item of activeAllocations) {
+    const targetBill = billMap.get(item.billId.toString());
+
+    if (targetBill) {
+      const amountToApply = Math.min(item.amountApplied, targetBill.balanceDue);
 
       preparedAllocations.push({
         billId: targetBill._id,
         amountApplied: amountToApply
       });
+
+      totalAllocatedRequested += amountToApply;
     }
   }
+  if (totalAllocatedRequested > amount) {
+    return next(new AppError('The total amount allocated to bills cannot exceed the actual payment amount.', 400));
+  }
+
+  // const targetBill = await Ledger.findById(billId);
+  // if (targetBill && targetBill.debit > 0) {
+  //   const amountToApply = Math.min(amount, targetBill.balanceDue);
+
+  //   preparedAllocations.push({
+  //     billId: targetBill._id,
+  //     amountApplied: amountToApply
+  //   });
+  // }
+
 
   const log = await Ledger.create({
     customer,
     date: paymentDate,
     description: isUsingAdvance ? `Pending Request: Use Advance` : `${bankName} - ${utrReference}`,
-    credit: amount,
+    credit: isUsingAdvance ? 0 : amount,
+    advanceAmount: isUsingAdvance ? amount : 0,
     bankInfo: isUsingAdvance ? { bankName: 'Advance', utrReference: 'N/A' } : { bankName, utrReference },
     remarks,
     status: 'pending',
@@ -98,7 +146,7 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
   const { manager } = req.query;
 
   const logs = await Ledger.find({
-    addedBy: manager,
+    // addedBy: manager,
     status: 'pending'
   }).populate({
     path: 'customer',
@@ -179,13 +227,21 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
   if (req.user.role === 'admin') {
     if (log.status === 'approved') {
 
-      if (log.credit > 0) {
+      if (log.credit > 0 && log.unallocatedAmount > 0) {
+        const targetCustomer = await Customer.findById(log.customer);
+        if (targetCustomer && targetCustomer.availableAdvance < log.unallocatedAmount) {
+           return next(new AppError('Cannot delete this payment. The customer has already used the advance generated from it. Please delete the advance application first.', 400));
+        }
+      }
+
+      if (log.credit > 0 || log.advanceAmount > 0) {
         if (log.allocations && log.allocations.length > 0) {
           for (const alloc of log.allocations) {
             const bill = await Ledger.findById(alloc.billId);
             if (bill) {
               bill.amountPaid -= alloc.amountApplied;
               bill.balanceDue += alloc.amountApplied;
+              bill.balanceDue = Math.round(bill.balanceDue * 100) / 100;
 
               if (bill.balanceDue === bill.debit) {
                 bill.paymentStatus = 'Unpaid';
@@ -202,11 +258,18 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
           }
         }
 
-        if (log.unallocatedAmount > 0) {
+        if (log.credit > 0 && log.unallocatedAmount > 0) {
           const targetCustomer = await Customer.findById(log.customer);
           if (targetCustomer) {
             targetCustomer.availableAdvance -= log.unallocatedAmount;
             if (targetCustomer.availableAdvance < 0) targetCustomer.availableAdvance = 0;
+            await targetCustomer.save();
+          }
+        } else if (log.advanceAmount > 0) {
+          const netAdvancedDeducted = log.advanceAmount - log.unallocatedAmount;
+          const targetCustomer = await Customer.findById(log.customer);
+          if (targetCustomer) {
+            targetCustomer.availableAdvance += netAdvancedDeducted;
             await targetCustomer.save();
           }
         }
@@ -235,11 +298,11 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
   if (action === 'approve') {
     if (log.isUsingAdvance) {
       const targetCustomer = await Customer.findById(log.customer);
-      if (!targetCustomer || targetCustomer.availableAdvance < log.credit) {
+      if (!targetCustomer || targetCustomer.availableAdvance < log.advanceAmount) {
         return next(new AppError('Customer advance balance has dropped since the Agent requested this. Cannot approve.', 400));
       }
 
-      targetCustomer.availableAdvance -= log.credit;
+      targetCustomer.availableAdvance -= log.advanceAmount;
       await targetCustomer.save();
 
       log.description = `Paid via Customer Advance (Approved)`;
@@ -252,6 +315,7 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
     if (!rejectionReason) return next(new AppError('Rejection reason is required', 400));
     log.status = 'rejected';
     log.rejectedReason = rejectionReason;
+    log.rejectedBy = req.user.id;
   } else {
     return next(new AppError('Invalid action', 400));
   }
@@ -262,28 +326,78 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
 });
 
 export const addDirectEntry = catchAsync(async (req, res, next) => {
-  const { isUsingAdvance, billId, ...entryData } = req.body;
+  const { isUsingAdvance, billId, allocations, ...entryData } = req.body;
 
-  if (isUsingAdvance && entryData.credit > 0) {
+  let amount = Number(entryData.credit) || 0;
+  const incomingDebit = Number(entryData.debit) || 0;
+
+  if (!entryData.customer || !entryData.date) {
+    return next(new AppError('Customer and date are required.', 400));
+  }
+
+  if (incomingDebit > 0 && amount > 0) {
+    return next(new AppError('You can only send a debit OR a credit amount at a time, not both.', 400));
+  }
+
+  if (incomingDebit > 0) {
+    if (!entryData.invoiceNo || (!entryData.description && !entryData.desc)) {
+      return next(new AppError('Invoice number and description are required for debit entries.', 400));
+    }
+  } else if (amount > 0) {
+    if (!isUsingAdvance && (!entryData.bankInfo || !entryData.bankInfo.bankName)) {
+      return next(new AppError('Bank name is required for credit entries.', 400));
+    }
+  } else {
+    return next(new AppError('Please provide either a debit or credit amount.', 400));
+  }
+
+  if (isUsingAdvance && amount > 0) {
     const targetCustomer = await Customer.findById(entryData.customer);
-    if (!targetCustomer || targetCustomer.availableAdvance < entryData.credit) {
+    if (!targetCustomer || targetCustomer.availableAdvance < amount) {
       return next(new AppError('Customer does not have enough advance balance for this payment.', 400));
     }
-    targetCustomer.availableAdvance -= entryData.credit;
+    targetCustomer.availableAdvance -= amount;
     await targetCustomer.save();
-    entryData.description = `Paid via Customer Advance - ${entryData.description || ''}`;
+
+    entryData.description = `Paid via Customer Advance - ${entryData.description || entryData.desc || ''}`;
+    entryData.advanceAmount = amount;
+    entryData.credit = 0;
   }
 
   let preparedAllocations = [];
+  let totalAllocatedRequested = 0;
 
-  if (billId && entryData.credit > 0) {
-    const targetBill = await Ledger.findById(billId);
-    if (targetBill && targetBill.debit > 0) {
-      const amountToApply = Math.min(entryData.credit, targetBill.balanceDue);
-      preparedAllocations.push({
-        billId: targetBill._id,
-        amountApplied: amountToApply
+  if (amount > 0) {
+    const activeAllocations = allocations?.length > 0 ? allocations : (billId ? [{ billId, amountApplied: amount }] : []);
+
+    if (activeAllocations.length > 0) {
+      const billIds = activeAllocations.map(a => a.billId);
+      const targetBills = await Ledger.find({
+        _id: { $in: billIds },
+        debit: { $gt: 0 },
+        balanceDue: { $gt: 0 }
       });
+
+      const billMap = new Map(targetBills.map(b => [b._id.toString(), b]));
+
+      for (const item of activeAllocations) {
+        const targetBill = billMap.get(item.billId.toString());
+
+        if (targetBill) {
+          const amountToApply = Math.min(item.amountApplied, targetBill.balanceDue);
+
+          preparedAllocations.push({
+            billId: targetBill._id,
+            amountApplied: amountToApply
+          });
+
+          totalAllocatedRequested += amountToApply;
+        }
+      }
+
+      if (totalAllocatedRequested > amount) {
+        return next(new AppError('The total amount allocated to bills cannot exceed the actual payment amount.', 400));
+      }
     }
   }
 
@@ -292,10 +406,11 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
     description: entryData.description || entryData.desc,
     status: 'approved',
     addedBy: req.user.id,
-    allocations: preparedAllocations
+    allocations: preparedAllocations,
+    isUsingAdvance: isUsingAdvance || false
   });
 
-  if (newEntry.credit > 0) {
+  if (newEntry.credit > 0 || newEntry.advanceAmount > 0) {
     await processPaymentAllocations(newEntry);
     await newEntry.save();
     sendPaymentAdjustmentEmail(newEntry);
@@ -342,7 +457,8 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
 
   const ledgerData = await Ledger.find({
     customer: customerId,
-    status: { $in: ['approved', 'pending'] }
+    status: { $in: ['approved', 'pending'] },
+    isUsingAdvance: { $ne: true }
   }).sort({ date: -1 });
 
   const agingReport = await Ledger.getAgingReport(customerId);
@@ -356,6 +472,39 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
         availableAdvance: customerDoc ? customerDoc.availableAdvance : 0
       },
       aging: agingReport
+    }
+  });
+});
+
+export const getLedgerEntryDetails = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const log = await Ledger.findById(id)
+    .populate({
+      path: 'customer',
+      select: 'companyName email availableAdvance'
+    })
+    .populate({
+      path: 'addedBy',
+      select: 'name role'
+    })
+    .populate({
+      path: 'allocations.billId',
+      select: 'date invoiceNo description debit balanceDue status paymentStatus'
+    })
+    .populate({
+      path: 'paymentsReceived.paymentId',
+      select: 'date description credit advanceAmount bankInfo isUsingAdvance status'
+    });
+
+  if (!log) {
+    return next(new AppError('No ledger entry found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      log
     }
   });
 });

@@ -10,9 +10,12 @@ export function useLedger(customerId, currentUserRole) {
   const [ledgerData, setLedgerData] = useState([]);
   const [dashboardTotals, setDashboardTotals] = useState({ outstanding: 0, availableAdvance: 0 });
   const [agingTotals, setAgingTotals] = useState({ current: 0, d30: 0, d60: 0, d90: 0 });
-  
+
   const [editingId, setEditingId] = useState(null);
-  const [adminFormData, setAdminFormData] = useState({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false });
+  const [adminFormData, setAdminFormData] = useState({ 
+    date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, 
+    bankName: '', utrReference: '', billId: '', allocations: [] 
+  });
   const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
 
   const fetchLedgerData = useCallback(async () => {
@@ -28,8 +31,8 @@ export function useLedger(customerId, currentUserRole) {
       const backendTotals = ledgerRes?.data?.totals || { outstanding: 0, availableAdvance: 0 };
 
       setLedgerData(transactions);
-      setDashboardTotals(backendTotals); // 💡 Trust the backend
-      
+      setDashboardTotals(backendTotals);
+
       setAgingTotals({
         current: backendAging.current || 0,
         d30: backendAging.thirtyPlus || 0,
@@ -38,14 +41,15 @@ export function useLedger(customerId, currentUserRole) {
       });
 
       const dbCustomer = profileRes?.data?.data?.customer || profileRes?.data?.customer;
-      
+
       if (dbCustomer) {
-        setCustomerProfile({ 
-          company: dbCustomer.companyName || 'Unknown', 
-          gst: dbCustomer.gstNumber || 'N/A', 
-          address: dbCustomer.address || 'N/A', 
+        setCustomerProfile({
+          company: dbCustomer.companyName || 'Unknown',
+          gst: dbCustomer.gstNumber || 'N/A',
+          address: dbCustomer.address || 'N/A',
+          email: dbCustomer.email || '',
           manager: dbCustomer.manager?.name || 'Unassigned',
-          managerId: dbCustomer.manager?._id || '' 
+          managerId: dbCustomer.manager?._id || ''
         });
       }
     } catch (error) {
@@ -62,7 +66,7 @@ export function useLedger(customerId, currentUserRole) {
 
   const handleEditClick = (row) => {
     setEditingId(row?._id || row?.id);
-    
+
     if (currentUserRole === 'admin') {
       setAdminFormData({
         date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
@@ -72,7 +76,9 @@ export function useLedger(customerId, currentUserRole) {
         credit: row?.credit?.toString() || '',
         remarks: row?.remarks || '',
         isUsingAdvance: row?.isUsingAdvance || false,
-        billId: row?.allocations?.[0]?.billId || '' // Preserve bill link if it exists
+        billId: row?.allocations?.[0]?.billId || '',
+        bankName: row?.bankInfo?.bankName || '',       // 💡 Map for editing
+        utrReference: row?.bankInfo?.utrReference || '' // 💡 Map for editing
       });
     } else {
       // 💡 THE FIX: For employees, map the existing pending payment data back into the form!
@@ -86,13 +92,16 @@ export function useLedger(customerId, currentUserRole) {
         isUsingAdvance: row?.isUsingAdvance || false,
       });
     }
-    
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-const resetForms = () => {
+  const resetForms = () => {
     setEditingId(null);
-    setAdminFormData({ date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, billId: '' });
+    setAdminFormData({ 
+      date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, 
+      bankName: '', utrReference: '', billId: '', allocations: [] 
+    });
     setSalesFormData({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
   };
 
@@ -101,7 +110,7 @@ const resetForms = () => {
     customerProfile,
     ledgerData,
     agingTotals,
-    totals: dashboardTotals, 
+    totals: dashboardTotals,
     editingId,
     adminFormData,
     salesFormData,

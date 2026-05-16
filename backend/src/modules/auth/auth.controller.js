@@ -14,7 +14,7 @@ const signToken = (id) => {
 const cookieOptions = {
   expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
   httpOnly: true,
-  secure: true,
+  secure: process.env.NODE_ENV === 'production',
   sameSite: 'None'
 };
 
@@ -87,6 +87,9 @@ export const forgotPassword = catchAsync(async (req, res, next) => {
 });
 
 export const verifyOtp = catchAsync(async (req, res, next) => {
+  if (!req.body.otp || !req.body.email) {
+    return next(new AppError('Please provide both email and OTP', 400));
+  }
   const hashedOtp = crypto.createHash('sha256').update(req.body.otp).digest('hex');
 
   const user = await User.findOne({
@@ -135,10 +138,7 @@ export const resetPassword = catchAsync(async (req, res, next) => {
 
 export const getAllUsers = catchAsync(async (req, res, next) => {
   const users = await User.find().select('name email role _id');
-  console.log(users);
   
-
-  // 3. Send the response
   res.status(200).json({
     status: 'success',
     results: users.length,
@@ -148,6 +148,12 @@ export const getAllUsers = catchAsync(async (req, res, next) => {
 
 export const createEmployee = catchAsync(async (req, res, next) => {
   const { name, role, password } = req.body;
+  if (!name || !role || !password) {
+    return next(new AppError('Please provide name, role and password', 400));
+  }
+  if (!req.body.email) {
+    return next(new AppError('Please provide an email', 400));
+  }
   const email = req.body.email.toLowerCase();
 
   const allowedDomain = process.env.ALLOWED_DOMAIN;

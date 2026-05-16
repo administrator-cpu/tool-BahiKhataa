@@ -11,12 +11,11 @@ export const createCustomer = catchAsync(async (req, res, next) => {
   if (!manager) {
     return next(new AppError('Please assign a manager to this customer.', 400));
   }
-  const cleanedGst = gstNumber && gstNumber.trim() !== "" ? gstNumber : undefined;
 
   const newCustomer = await Customer.create({
     companyName,
     address,
-    gstNumber: cleanedGst,
+    gstNumber,
     email: email || null,
     manager: manager,
   });
@@ -45,11 +44,19 @@ export const assignManager = catchAsync(async (req, res, next) => {
 export const editCustomer = catchAsync(async (req, res, next) => {
   const customerId = req.params.id;
 
-  if (req.body._id) delete req.body._id;
+  const filterObj = (obj, ...allowedFields) => {
+    const newObj = {};
+    Object.keys(obj).forEach(el => {
+      if (allowedFields.includes(el)) newObj[el] = obj[el];
+    });
+    return newObj;
+  };
+
+  const filteredBody = filterObj(req.body, 'companyName', 'address', 'gstNumber', 'email', 'isActive');
 
   const updatedCustomer = await Customer.findByIdAndUpdate(
     customerId,
-    req.body,
+    filteredBody,
     {
       new: true,
       runValidators: true,
@@ -83,7 +90,7 @@ export const getMyCustomers = catchAsync(async (req, res, next) => {
 export const getAllCustomers = catchAsync(async (req, res, next) => {
   const filter = req.query.manager ? { manager: req.query.manager } : {};
 
-  const customers = await Customer.find(filter).populate({
+  const customers = await Customer.find(filter).lean().populate({
     path: "manager",
     select: "name email",
   });
@@ -113,7 +120,7 @@ export const getCustomerById = catchAsync(async (req, res, next) => {
 
 export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
   const targetManager = req.query.manager || req.user.id;
-  const customers = await Customer.find({ manager: targetManager }).populate("manager", "name email");
+  const customers = await Customer.find({ manager: targetManager }).lean().populate("manager", "name email");
 
 
   if (!customers.length) {
@@ -198,7 +205,8 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
 
   const ledgers = await Ledger.find({ 
     customer: customerId, 
-    status: 'approved' 
+    status: 'approved',
+    isUsingAdvance: { $ne: true }
   }).sort({ date: 1 });
 
   const workbook = new excel.Workbook();
@@ -260,7 +268,11 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
 
-  let query = { customer: customerId, status: 'approved' };
+  let query = { 
+    customer: customerId,
+    status: 'approved',
+    isUsingAdvance: { $ne: true }
+  };
   let openingBalance = 0;
 
   if (fromDate) {
@@ -269,6 +281,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
     const prevLogs = await Ledger.find({
       customer: customerId,
       status: 'approved',
+      isUsingAdvance: { $ne: true },
       date: { $lt: new Date(fromDate) }
     });
 

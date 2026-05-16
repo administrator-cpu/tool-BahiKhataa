@@ -32,7 +32,6 @@ export default function CreateCustomerPage() {
   const fetchManagers = async () => {
     try {
       const { data } = await userService.getEmployees();
-      console.log("Managers fetched:", data?.data?.users || data?.users);
       setActiveManagers(data?.data?.users || data?.users || []);
     } catch (error) {
       console.error(error);
