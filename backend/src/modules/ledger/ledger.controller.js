@@ -328,18 +328,20 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
 export const addDirectEntry = catchAsync(async (req, res, next) => {
   const { isUsingAdvance, billId, allocations, ...entryData } = req.body;
 
-  let amount = Number(entryData.credit) || 0;
-  const incomingDebit = Number(entryData.debit) || 0;
+  const hasDebit = entryData.debit !== undefined && entryData.debit !== '';
+  const incomingDebit = hasDebit ? Number(entryData.debit) : 0;
+  
+  const amount = Number(entryData.credit) || 0;
 
   if (!entryData.customer || !entryData.date) {
     return next(new AppError('Customer and date are required.', 400));
   }
 
-  if (incomingDebit > 0 && amount > 0) {
+  if (hasDebit && amount > 0) {
     return next(new AppError('You can only send a debit OR a credit amount at a time, not both.', 400));
   }
 
-  if (incomingDebit > 0) {
+  if (hasDebit) {
     if (!entryData.invoiceNo || (!entryData.description && !entryData.desc)) {
       return next(new AppError('Invoice number and description are required for debit entries.', 400));
     }
@@ -348,7 +350,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
       return next(new AppError('Bank name is required for credit entries.', 400));
     }
   } else {
-    return next(new AppError('Please provide either a debit or credit amount.', 400));
+    return next(new AppError('Please provide either a debit (can be 0) or a credit amount greater than 0.', 400));
   }
 
   if (isUsingAdvance && amount > 0) {
