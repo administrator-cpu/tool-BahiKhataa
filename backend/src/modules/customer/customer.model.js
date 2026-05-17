@@ -11,7 +11,8 @@ const customerSchema = new mongoose.Schema({
   address: {
     type: String,
     required: [true, "Please enter the address"],
-    trim: true
+    trim: true,
+    uppercase: true
   },
   gstNumber: {
     type: String,
