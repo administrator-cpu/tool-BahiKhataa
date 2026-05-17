@@ -6,9 +6,11 @@ import { safeFormatCurrency } from '@/app/common/lib/utils';
 
 // Consistent Bank Options
 const BANK_OPTIONS = [
-  "HDFC Bank", "ICICI Bank", "State Bank of India (SBI)", "Axis Bank",
-  "Kotak Mahindra Bank", "Punjab National Bank (PNB)", "Bank of Baroda",
-  "IndusInd Bank", "Yes Bank", "Cash / Direct", "Other"
+  "Kotak Mahindra Bank",
+  "YesBank",
+  "Credit Card",
+  "Payment Gateway",
+  "Other",
 ];
 
 export default function SalesPaymentForm({ 

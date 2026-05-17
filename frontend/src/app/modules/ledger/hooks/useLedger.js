@@ -13,7 +13,7 @@ export function useLedger(customerId, currentUserRole) {
 
   const [editingId, setEditingId] = useState(null);
   const [adminFormData, setAdminFormData] = useState({ 
-    date: '', desc: '', ref: '', debit: '', credit: '', remarks: '', isUsingAdvance: false, 
+    date: '', desc: '', ref: '', debit: ''||0, credit: '', remarks: '', isUsingAdvance: false, 
     bankName: '', utrReference: '', billId: '', allocations: [] 
   });
   const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
