@@ -22,6 +22,7 @@ const BANK_OPTIONS = [
   "YesBank",
   "Credit Card",
   "Payment Gateway",
+  "HDFC",
   "Other",
 ];
 
