@@ -158,7 +158,7 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
 
 export const editLedgerEntry = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { debit, credit, date, description, remarks, bankInfo, invoiceNo } = req.body;
+  const { debit, credit, date, description, remarks, bankInfo, invoiceNo, allocations } = req.body;
 
   const log = await Ledger.findById(id);
   if (!log) return next(new AppError('Log not found', 404));
@@ -171,24 +171,41 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       return next(new AppError('You can only edit your own entries.', 403));
     }
 
-    Object.assign(log, req.body);
-    await log.save();
+    // 🚨 SECURITY FIX: Explicit mapping prevents hackers from injecting "status": "approved"
+    if (date) log.date = date;
+    if (description) log.description = description;
+    if (remarks) log.remarks = remarks;
+    if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
+    if (credit !== undefined) log.credit = Number(credit);
+    if (req.body.advanceAmount !== undefined) log.advanceAmount = Number(req.body.advanceAmount);
+    if (allocations) log.allocations = allocations;
 
+    const totalAmount = log.credit > 0 ? log.credit : log.advanceAmount;
+
+    if (log.allocations && log.allocations.length > 0) {
+      const totalAllocated = log.allocations.reduce((sum, alloc) => sum + Number(alloc.amountApplied), 0);
+
+      if (totalAllocated > totalAmount) {
+        return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total payment amount is only ₹${totalAmount}. Please adjust the allocations.`, 400));
+      }
+    }
+
+    await log.save();
     return res.status(200).json({ status: 'success', data: { log } });
   }
 
   if (req.user.role === 'admin') {
-
     if (date) log.date = date;
     if (description) log.description = description;
     if (remarks) log.remarks = remarks;
     if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
     if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
+    if (allocations) log.allocations = allocations;
 
-    const incomingDebit = Number(debit) || 0;
+    const incomingDebit = debit !== undefined ? Number(debit) : log.debit || 0;
     const existingDebit = log.debit || 0;
 
-    const incomingCredit = Number(credit) || 0;
+    const incomingCredit = credit !== undefined ? Number(credit) : log.credit || 0;
     const existingCredit = log.credit || 0;
     if (incomingDebit !== existingDebit) {
       if (log.paymentStatus !== 'Unpaid' || log.amountPaid > 0) {
@@ -203,6 +220,18 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
         return next(new AppError('Industry Standard: To change the amount of a processed payment, please delete the entry and re-enter it. This ensures advance balances calculate correctly.', 400));
       }
       log.credit = incomingCredit;
+    }
+
+    if (log.status === 'pending' && (log.credit > 0 || log.advanceAmount > 0)) {
+      const totalAmount = log.credit > 0 ? log.credit : log.advanceAmount;
+
+      if (log.allocations && log.allocations.length > 0) {
+        const totalAllocated = log.allocations.reduce((sum, alloc) => sum + Number(alloc.amountApplied), 0);
+
+        if (totalAllocated > totalAmount) {
+          return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total payment amount is only ₹${totalAmount}. Please adjust the allocations.`, 400));
+        }
+      }
     }
 
     await log.save();
@@ -230,7 +259,7 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
       if (log.credit > 0 && log.unallocatedAmount > 0) {
         const targetCustomer = await Customer.findById(log.customer);
         if (targetCustomer && targetCustomer.availableAdvance < log.unallocatedAmount) {
-           return next(new AppError('Cannot delete this payment. The customer has already used the advance generated from it. Please delete the advance application first.', 400));
+          return next(new AppError('Cannot delete this payment. The customer has already used the advance generated from it. Please delete the advance application first.', 400));
         }
       }
 
@@ -330,7 +359,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
 
   const hasDebit = entryData.debit !== undefined && entryData.debit !== '';
   const incomingDebit = hasDebit ? Number(entryData.debit) : 0;
-  
+
   const amount = Number(entryData.credit) || 0;
 
   if (!entryData.customer || !entryData.date) {
