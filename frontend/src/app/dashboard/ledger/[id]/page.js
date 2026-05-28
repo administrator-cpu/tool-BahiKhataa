@@ -120,6 +120,7 @@ export default function CustomerLedger() {
       const updatePayload = {
         date: salesFormData.date,
         credit: salesFormData.amount,
+        allocations: salesFormData.allocations,
         bankInfo: { bankName: salesFormData.bank, utrReference: salesFormData.utr },
         remarks: salesFormData.remarks,
       };
@@ -181,7 +182,6 @@ export default function CustomerLedger() {
     ).catch(() => { });
   };
 
-  // 7. Download Handlers
   const handleDownloadExcel = async () => {
     await execute(
       async () => {
@@ -278,8 +278,6 @@ export default function CustomerLedger() {
       )}
 
       <div className="space-y-6">
-
-        {/* PROFILE CARD */}
         <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm flex flex-col lg:flex-row justify-between gap-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-50" />
 
@@ -327,7 +325,6 @@ export default function CustomerLedger() {
             </div>
           </div>
 
-          {/* TOTALS & ACTIONS */}
           <div className="flex flex-col gap-3 relative z-10 min-w-[250px]">
             {totals.availableAdvance > 0 && (
               <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100 text-right shadow-sm">
