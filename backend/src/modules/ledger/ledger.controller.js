@@ -158,7 +158,7 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
 
 export const editLedgerEntry = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { debit, credit, date, description, remarks, bankInfo, invoiceNo, allocations } = req.body;
+  const { debit, credit, date, description, remarks, bankInfo, invoiceNo, allocations, isUsingAdvance, customer } = req.body;
 
   const log = await Ledger.findById(id);
   if (!log) return next(new AppError('Log not found', 404));
@@ -171,7 +171,6 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       return next(new AppError('You can only edit your own entries.', 403));
     }
 
-    // 🚨 SECURITY FIX: Explicit mapping prevents hackers from injecting "status": "approved"
     if (date) log.date = date;
     if (description) log.description = description;
     if (remarks) log.remarks = remarks;
@@ -195,47 +194,54 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
   }
 
   if (req.user.role === 'admin') {
-    if (date) log.date = date;
-    if (description) log.description = description;
-    if (remarks) log.remarks = remarks;
-    if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
-    if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
-    if (allocations) log.allocations = allocations;
 
-    const incomingDebit = debit !== undefined ? Number(debit) : log.debit || 0;
-    const existingDebit = log.debit || 0;
+    if (log.status === 'approved') {
 
-    const incomingCredit = credit !== undefined ? Number(credit) : log.credit || 0;
-    const existingCredit = log.credit || 0;
-    if (incomingDebit !== existingDebit) {
-      if (log.paymentStatus !== 'Unpaid' || log.amountPaid > 0) {
-        return next(new AppError('You cannot change the amount of a bill that has payments applied to it.', 400));
+      const isAttemptingFinancialEdit =
+        (credit !== undefined && Number(credit) !== log.credit) ||
+        (debit !== undefined && Number(debit) !== log.debit) ||
+        (allocations !== undefined) ||
+        (isUsingAdvance !== undefined && isUsingAdvance !== log.isUsingAdvance) ||
+        (customer !== undefined && customer !== log.customer.toString());
+
+      if (isAttemptingFinancialEdit) {
+        return next(new AppError(
+          'Immutable Record: Approved financial transactions cannot be altered. To change amounts or allocations, please delete this entry to safely roll back all balances, then create a new corrected entry.',
+          400
+        ));
       }
-      log.debit = incomingDebit;
-      log.balanceDue = incomingDebit;
+
+      if (date) log.date = date;
+      if (description) log.description = description;
+      if (remarks) log.remarks = remarks;
+      if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
+      if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
+
+      await log.save();
+      return res.status(200).json({ status: 'success', data: { log } });
     }
 
-    if (incomingCredit !== existingCredit) {
-      if (log.status === 'approved') {
-        return next(new AppError('Industry Standard: To change the amount of a processed payment, please delete the entry and re-enter it. This ensures advance balances calculate correctly.', 400));
-      }
-      log.credit = incomingCredit;
-    }
+    if (log.status === 'pending') {
+      if (date) log.date = date;
+      if (description) log.description = description;
+      if (remarks) log.remarks = remarks;
+      if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
+      if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
+      if (credit !== undefined) log.credit = Number(credit);
+      if (debit !== undefined) log.debit = Number(debit);
+      if (allocations) log.allocations = allocations;
 
-    if (log.status === 'pending' && (log.credit > 0 || log.advanceAmount > 0)) {
       const totalAmount = log.credit > 0 ? log.credit : log.advanceAmount;
-
-      if (log.allocations && log.allocations.length > 0) {
+      if (log.allocations && log.allocations.length > 0 && totalAmount > 0) {
         const totalAllocated = log.allocations.reduce((sum, alloc) => sum + Number(alloc.amountApplied), 0);
-
         if (totalAllocated > totalAmount) {
-          return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total payment amount is only ₹${totalAmount}. Please adjust the allocations.`, 400));
+          return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total amount is only ₹${totalAmount}.`, 400));
         }
       }
-    }
 
-    await log.save();
-    return res.status(200).json({ status: 'success', data: { log } });
+      await log.save();
+      return res.status(200).json({ status: 'success', data: { log } });
+    }
   }
 });
 
