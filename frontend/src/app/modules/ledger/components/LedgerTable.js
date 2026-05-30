@@ -184,9 +184,9 @@ export default function LedgerTable({
                                 </>
                               ) : (
                                 <>
-                                  {!(row.debit > 0 && row.amountPaid > 0) && (
+                                  {/* {!(row.debit > 0 && row.amountPaid > 0) && (
                                     <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Entry"><Edit size={16} /></button>
-                                  )}
+                                  )} */}
                                   <button onClick={() => onDelete(rowId)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete Entry"><Trash2 size={16} /></button>
                                 </>
                               )
