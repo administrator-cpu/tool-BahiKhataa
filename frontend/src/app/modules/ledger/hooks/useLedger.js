@@ -16,7 +16,7 @@ export function useLedger(customerId, currentUserRole) {
     date: '', desc: '', ref: '', debit: ''||0, credit: '', remarks: '', isUsingAdvance: false, 
     bankName: '', utrReference: '', billId: '', allocations: [] 
   });
-  const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", isUsingAdvance: false });
+  const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", allocations: [], isUsingAdvance: false });
 
   const fetchLedgerData = useCallback(async () => {
     if (!customerId) return;
@@ -64,8 +64,12 @@ export function useLedger(customerId, currentUserRole) {
     if (customerId && currentUserRole) fetchLedgerData();
   }, [customerId, currentUserRole, fetchLedgerData]);
 
-  const handleEditClick = (row) => {
+const handleEditClick = (row) => {
     setEditingId(row?._id || row?.id);
+    const mappedAllocations = (row?.allocations || []).map(a => ({
+      billId: a.billId?._id || a.billId?.id || a.billId, 
+      amountApplied: Number(a.amountApplied) || 0
+    }));
 
     if (currentUserRole === 'admin') {
       setAdminFormData({
@@ -76,20 +80,21 @@ export function useLedger(customerId, currentUserRole) {
         credit: row?.credit?.toString() || '',
         remarks: row?.remarks || '',
         isUsingAdvance: row?.isUsingAdvance || false,
-        billId: row?.allocations?.[0]?.billId || '',
-        bankName: row?.bankInfo?.bankName || '',       // 💡 Map for editing
-        utrReference: row?.bankInfo?.utrReference || '' // 💡 Map for editing
+        billId: mappedAllocations[0]?.billId || '',
+        bankName: row?.bankInfo?.bankName || '',       
+        utrReference: row?.bankInfo?.utrReference || '',
+        allocations: mappedAllocations 
       });
     } else {
-      // 💡 THE FIX: For employees, map the existing pending payment data back into the form!
       setSalesFormData({
         date: row?.date ? new Date(row?.date).toISOString().split('T')[0] : '',
-        amount: row?.credit?.toString() || '', // Employees edit their pending CREDIT payments
+        amount: row?.credit?.toString() || '', 
         utr: row?.bankInfo?.utrReference || '',
         bank: row?.bankInfo?.bankName || '',
         remarks: row?.remarks || '',
-        billId: row?.allocations?.[0]?.billId || "", // Preserve bill link if it exists
+        billId: mappedAllocations[0]?.billId || "", 
         isUsingAdvance: row?.isUsingAdvance || false,
+        allocations: mappedAllocations 
       });
     }
 
