@@ -197,18 +197,31 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
 
     if (log.status === 'approved') {
 
-      const incomingDebit = debit !== undefined ? Number(debit) : log.debit;
-      const incomingCredit = credit !== undefined ? Number(credit) : log.credit;
+      const existingDebit = log.debit || 0;
+      const existingCredit = log.credit || 0;
 
-      const isEditingUnpaidBill = incomingDebit !== log.debit && (log.amountPaid === 0 || log.amountPaid === undefined);
+      const incomingDebit = (debit !== undefined && debit !== '') ? Number(debit) : existingDebit;
+      const incomingCredit = (credit !== undefined && credit !== '') ? Number(credit) : existingCredit;
+
+      const isChangingCredit = incomingCredit !== existingCredit;
+      const isChangingDebit = incomingDebit !== existingDebit;
+
+      const isChangingAllocations = allocations !== undefined && JSON.stringify(allocations) !== JSON.stringify(log.allocations || []);
+
+      const isChangingAdvance = isUsingAdvance !== undefined && Boolean(isUsingAdvance) !== Boolean(log.isUsingAdvance);
+      const isChangingCustomer = customer !== undefined && customer !== log.customer.toString();
+
+      const isEditingUnpaidBill = isChangingDebit && (log.amountPaid === 0 || log.amountPaid === undefined);
 
       const isAttemptingFinancialEdit =
-        (incomingCredit !== log.credit) ||
-        (!isEditingUnpaidBill && incomingDebit !== log.debit) || (allocations !== undefined) ||
-        (isUsingAdvance !== undefined && isUsingAdvance !== log.isUsingAdvance) || (customer !== undefined && customer !== log.customer.toString());
+        isChangingCredit ||
+        (!isEditingUnpaidBill && isChangingDebit) ||
+        isChangingAllocations ||
+        isChangingAdvance ||
+        isChangingCustomer;
 
       if (isAttemptingFinancialEdit) {
-        if (incomingDebit !== log.debit && log.amountPaid > 0) {
+        if (isChangingDebit && log.amountPaid > 0) {
           return next(new AppError('You cannot change the amount of a bill that already has payments applied to it. Please delete the attached payments first.', 400));
         }
 
@@ -223,7 +236,10 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       if (remarks) log.remarks = remarks;
       if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
       if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
-
+      if (isEditingUnpaidBill) {
+        log.debit = incomingDebit;
+        log.balanceDue = incomingDebit; 
+      }
       await log.save();
       return res.status(200).json({ status: 'success', data: { log } });
     }
