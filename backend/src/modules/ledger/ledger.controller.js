@@ -197,14 +197,21 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
 
     if (log.status === 'approved') {
 
+      const incomingDebit = debit !== undefined ? Number(debit) : log.debit;
+      const incomingCredit = credit !== undefined ? Number(credit) : log.credit;
+
+      const isEditingUnpaidBill = incomingDebit !== log.debit && (log.amountPaid === 0 || log.amountPaid === undefined);
+
       const isAttemptingFinancialEdit =
-        (credit !== undefined && Number(credit) !== log.credit) ||
-        (debit !== undefined && Number(debit) !== log.debit) ||
-        (allocations !== undefined) ||
-        (isUsingAdvance !== undefined && isUsingAdvance !== log.isUsingAdvance) ||
-        (customer !== undefined && customer !== log.customer.toString());
+        (incomingCredit !== log.credit) ||
+        (!isEditingUnpaidBill && incomingDebit !== log.debit) || (allocations !== undefined) ||
+        (isUsingAdvance !== undefined && isUsingAdvance !== log.isUsingAdvance) || (customer !== undefined && customer !== log.customer.toString());
 
       if (isAttemptingFinancialEdit) {
+        if (incomingDebit !== log.debit && log.amountPaid > 0) {
+          return next(new AppError('You cannot change the amount of a bill that already has payments applied to it. Please delete the attached payments first.', 400));
+        }
+
         return next(new AppError(
           'Immutable Record: Approved financial transactions cannot be altered. To change amounts or allocations, please delete this entry to safely roll back all balances, then create a new corrected entry.',
           400
