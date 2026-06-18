@@ -4,19 +4,59 @@ import catchAsync from "../../utils/catchAsync.js";
 import Ledger from "../ledger/ledger.model.js";
 import excel from "exceljs";
 import PDFDocument from 'pdfkit-table';
+import { crmClient } from "../../utils/crmClient.js";
+
+export const getCRMProfileForCreation = catchAsync(async (req, res, next) => {
+  const { crmId } = req.params;
+
+  try {
+    const response = await crmClient.get(`/api/crm/customers/${crmId}`);
+    const crmData = response.data;
+
+    const addressOptions = (crmData.billingProfile || []).map(profile => {
+      const { street, city, state, pincode } = profile.address || {};
+      const formattedAddress = [street, city, state, pincode].filter(Boolean).join(', ');
+      
+      return {
+        label: profile.label || 'Default Location',
+        gstNumber: profile.gstNumber || '',
+        fullAddress: formattedAddress
+      };
+    }).filter(option => option.fullAddress);
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        crmId: crmData._id,
+        companyName: crmData.name,
+        email: crmData.email,
+        addresses: addressOptions
+      }
+    });
+
+  } catch (error) {
+    return next(new AppError('Failed to fetch full profile from the CRM.', 502));
+  }
+});
 
 export const createCustomer = catchAsync(async (req, res, next) => {
-  const { companyName, address, gstNumber, email, manager } = req.body;
+  const { companyName, address, gstNumber, email, manager, crmId } = req.body;
 
   if (!manager) {
     return next(new AppError('Please assign a manager to this customer.', 400));
   }
 
-  const existingCustomer = await Customer.findOne({ 
-    companyName: companyName.toUpperCase() 
+  const existingCustomer = await Customer.findOne({
+    companyName: companyName.toUpperCase()
   });
   if (existingCustomer) {
     return next(new AppError(`A customer with the name "${companyName.toUpperCase()}" already exists.`, 409));
+  }
+  if (crmId) {
+    const existingLinked = await Customer.findOne({ crmId });
+    if (existingLinked) {
+      return next(new AppError('This CRM Customer is already linked to another Bahi Khata profile.', 409));
+    }
   }
 
   const newCustomer = await Customer.create({
@@ -25,6 +65,7 @@ export const createCustomer = catchAsync(async (req, res, next) => {
     gstNumber,
     email: email || null,
     manager: manager,
+    crmId: crmId || undefined
   });
 
   res.status(201).json({
@@ -148,6 +189,8 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
         managerName: customer.manager ? customer.manager.name : "Unassigned",
         managerId: customer.manager ? customer.manager._id : "",
         aging: aging,
+        isCrmLinked: !!customer.crmId, 
+        crmId: customer.crmId || null
       };
     }),
   );
@@ -178,8 +221,7 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
   }
 
   const customers = await Customer.find(query).populate("manager", "name email").lean();
-
-  const totalCustomers = await Customer.countDocuments(query);
+  // const totalCustomers = await Customer.countDocuments(query);
 
   const dashboardData = await Promise.all(
     customers.map(async (customer) => {
@@ -191,6 +233,8 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
         managerName: customer.manager ? customer.manager.name : "Unassigned",
         managerId: customer.manager ? customer.manager._id : "",
         aging: aging,
+        isCrmLinked: !!customer.crmId, 
+        crmId: customer.crmId || null
       };
     })
   );
@@ -210,8 +254,8 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
 
-  const ledgers = await Ledger.find({ 
-    customer: customerId, 
+  const ledgers = await Ledger.find({
+    customer: customerId,
     status: 'approved',
     isUsingAdvance: { $ne: true }
   }).sort({ date: 1 });
@@ -232,13 +276,13 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
   worksheet.getRow(1).fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FF1F2937' } 
+    fgColor: { argb: 'FF1F2937' }
   };
   worksheet.getRow(1).alignment = { horizontal: 'center' };
 
   ledgers.forEach((log) => {
     const row = worksheet.addRow({
-      date: new Date(log.date).toLocaleDateString('en-IN'), 
+      date: new Date(log.date).toLocaleDateString('en-IN'),
       description: log.description || '-',
       invoiceNo: log.invoiceNo || '-',
       debit: log.debit > 0 ? log.debit : '',
@@ -247,17 +291,17 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
 
     row.getCell('debit').alignment = { horizontal: 'right' };
     row.getCell('credit').alignment = { horizontal: 'right' };
-    
+
   });
 
   res.setHeader(
     'Content-Type',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   );
-  
+
   const safeCompanyName = customer.companyName.replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `Ledger_${safeCompanyName}.xlsx`;
-  
+
   res.setHeader(
     'Content-Disposition',
     `attachment; filename=${fileName}`
@@ -275,7 +319,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
 
-  let query = { 
+  let query = {
     customer: customerId,
     status: 'approved',
     isUsingAdvance: { $ne: true }
@@ -298,8 +342,8 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
       prevDebit += (log.debit || 0);
       prevCredit += (log.credit || 0);
     });
-    
-    openingBalance = prevDebit - prevCredit; 
+
+    openingBalance = prevDebit - prevCredit;
   }
 
   if (toDate) {
@@ -328,7 +372,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
 
   doc.fontSize(14).font('Helvetica-Bold').text(customer.companyName.toUpperCase(), { align: 'center' });
   doc.fontSize(12).font('Helvetica').text('Ledger Account', { align: 'center' });
-  
+
   const displayStartDate = fromDate ? new Date(fromDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[0].date).toLocaleDateString('en-IN') : '-');
   const displayEndDate = toDate ? new Date(toDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[ledgers.length - 1].date).toLocaleDateString('en-IN') : '-');
   doc.fontSize(10).font('Helvetica').text(`${displayStartDate} to ${displayEndDate}`, { align: 'center' });
@@ -363,7 +407,7 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   ledgers.forEach(log => {
     const debitAmt = log.debit || 0;
     const creditAmt = log.credit || 0;
-    
+
     totalDebit += debitAmt;
     totalCredit += creditAmt;
 
@@ -388,26 +432,26 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   tableRows.push(['', '', '', '']);
 
   tableRows.push([
-    '', 
-    'Total', 
-    totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+    '',
+    'Total',
+    totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
     totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })
   ]);
 
   if (balance !== 0) {
     tableRows.push([
-      '', 
-      isDebitBalance ? 'By Closing Balance' : 'To Closing Balance', 
-      isDebitBalance ? '' : Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+      '',
+      isDebitBalance ? 'By Closing Balance' : 'To Closing Balance',
+      isDebitBalance ? '' : Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
       isDebitBalance ? Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
     ]);
   }
 
   const grandTotal = Math.max(totalDebit, totalCredit);
   tableRows.push([
-    '', 
-    '', 
-    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 
+    '',
+    '',
+    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
     grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })
   ]);
 
@@ -438,4 +482,152 @@ export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   });
 
   doc.end();
+});
+
+// =====================================================
+// 🔍 SEARCH CRM FOR SNAPSHOT (For Frontend Form)
+// =====================================================
+export const searchCRMCustomers = catchAsync(async (req, res, next) => {
+  const { query } = req.query;
+
+  if (!query) {
+    return next(new AppError('Please provide a search term.', 400));
+  }
+
+  try {
+    const response = await crmClient.get(`/api/crm/customers`, {
+      params: { search: query }
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      data: response.data.customers
+    });
+  } catch (error) {
+    return next(new AppError('Failed to fetch data from the CRM. Ensure the CRM is online and the API key is correct.', 502));
+  }
+});
+
+// ================================================
+// 👁️ PREVIEW CRM MATCH (For the Compare Tab)
+// ===============================================
+export const previewCRMMatch = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const customer = await Customer.findById(id);
+  if (!customer) return next(new AppError('Customer not found in Bahi Khata.', 404));
+
+  try {
+    const searchRes = await crmClient.get(`/api/crm/customers`, {
+      params: { search: customer.companyName } 
+    });
+
+    const crmCustomers = searchRes.data.customers;
+
+    if (!crmCustomers || crmCustomers.length === 0) {
+      return res.status(200).json({
+        status: 'success',
+        matchFound: false,
+        message: 'No exact match found in CRM.'
+      });
+    }
+
+    const crmId = crmCustomers[0]._id;
+    const profileRes = await crmClient.get(`/api/crm/customers/${crmId}`);
+    
+    return res.status(200).json({
+      status: 'success',
+      matchFound: true,
+      data: {
+        bahiKhataCustomer: customer,
+        crmPreview: profileRes.data
+      }
+    });
+
+  } catch (error) {
+    console.error("CRM Preview Error:", error?.response?.data || error.message);
+    return next(new AppError('Error communicating with the CRM API during preview.', 502));
+  }
+});
+
+// ========================================================== 
+// 🔗 LINK CUSTOMER (When Clicked on the Sync Button)
+// ==========================================================
+export const linkCustomerWithCRM = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const { crmId } = req.body;
+
+  if (!crmId) {
+    return next(new AppError('crmId is required to link the account.', 400));
+  }
+
+  const customer = await Customer.findById(id);
+  if (!customer) return next(new AppError('Customer not found in Bahi Khata.', 404));
+
+  customer.crmId = crmId;
+  await customer.save();
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Successfully linked to CRM!',
+    data: { customer }
+  });
+});
+
+// ==============================================================
+// 📊 AUDIT: COMPARE BAHI KHATA NAMES VS CRM NAMES (FOR ME)
+// ==============================================================
+export const auditCustomerNames = catchAsync(async (req, res, next) => {
+  const bahiKhataCustomers = await Customer.find().select('companyName -_id');
+  const bkNames = bahiKhataCustomers.map(c => c.companyName);
+
+  if (bkNames.length === 0) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'No customers exist in Bahi Khata yet.'
+    });
+  }
+
+  try {
+    const crmResponse = await crmClient.get(`/api/crm/customers`, {
+      params: { limit: 100000 }
+    });
+
+    const crmCustomers = crmResponse.data.customers || [];
+    const crmNames = crmCustomers.map(c => c.name);
+
+    const crmNameSet = new Set(crmNames);
+
+    const matchedNames = [];
+    const unmatchedNames = [];
+
+    bkNames.forEach(name => {
+      if (crmNameSet.has(name)) {
+        matchedNames.push(name);
+      } else {
+        unmatchedNames.push(name);
+      }
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        metrics: {
+          totalBahiKhataCustomers: bkNames.length,
+          totalCrmCustomersFetched: crmNames.length,
+          exactMatchesFound: matchedNames.length,
+          missingFromCrm: unmatchedNames.length,
+          matchPercentage: ((matchedNames.length / bkNames.length) * 100).toFixed(2) + '%'
+        },
+        lists: {
+          readyToSync: matchedNames,
+          needsAttention: unmatchedNames
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("CRM Audit Error:", error?.response?.data || error.message);
+    return next(new AppError('Failed to fetch the full customer list from the CRM for comparison.', 502));
+  }
 });

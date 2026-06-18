@@ -1,9 +1,10 @@
 import express from 'express';
 import {
-  createCustomer, getMyCustomers,
+  getCRMProfileForCreation, createCustomer, getMyCustomers,
   getAllCustomers, getPortfolioDashboard,
   getCustomerById, getMainDashboard,
   editCustomer, assignManager,
+  searchCRMCustomers, previewCRMMatch, linkCustomerWithCRM, auditCustomerNames,
   downloadLedgerExcel, downloadLedgerPDF
 } from './customer.controller.js';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
@@ -15,7 +16,13 @@ router.use(protect);
 router.get('/portfolio', restrictTo('employee', 'admin'), getPortfolioDashboard);
 router.get('/me', restrictTo('employee', 'admin'), getMyCustomers);
 router.post('/', restrictTo('admin'), createCustomer);
-router.get('/', restrictTo('admin', 'employee'), getMainDashboard);
+// CRM Integration Routes
+router.get('/crm-search', restrictTo('admin', 'employee'), searchCRMCustomers);
+router.get('/crm-audit', restrictTo('admin'), auditCustomerNames);
+router.get('/crm-profile/:crmId', restrictTo('admin', 'employee'), getCRMProfileForCreation);
+router.get('/:id/crm-preview', restrictTo('admin'), previewCRMMatch);
+router.patch('/:id/link-crm', restrictTo('admin'), linkCustomerWithCRM);
+// End of CRM Integration Routes
 router.get('/:customerId/pdf', restrictTo('admin', 'employee'), downloadLedgerPDF);
 router.get('/:customerId/excel', restrictTo('admin', 'employee'), downloadLedgerExcel);
 router.patch('/:id', restrictTo('admin'), editCustomer);

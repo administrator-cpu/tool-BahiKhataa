@@ -53,7 +53,7 @@ app.use(cookieParser());
 app.use('/api', limiter); 
 
 app.use(
-  morgan(process.env.NODE_ENV === "production" ? "combined" : "dev", {
+  morgan(":method :url :status :response-time ms - :res[content-length]", {
     skip: (req) => req.path === "/health",
     stream: { write: (message) => logger.http(message.trim()) }
   })

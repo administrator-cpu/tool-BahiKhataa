@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
 const customerSchema = new mongoose.Schema({
+  crmId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
   companyName: {
     type: String,
     required: [true, "Please enter the company name"],
