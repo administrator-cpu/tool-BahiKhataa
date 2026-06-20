@@ -15,6 +15,7 @@ router.use(protect);
 
 router.get('/portfolio', restrictTo('employee', 'admin'), getPortfolioDashboard);
 router.get('/me', restrictTo('employee', 'admin'), getMyCustomers);
+router.get('/', restrictTo('admin', 'employee'), getMainDashboard);
 router.post('/', restrictTo('admin'), createCustomer);
 // CRM Integration Routes
 router.get('/crm-search', restrictTo('admin', 'employee'), searchCRMCustomers);

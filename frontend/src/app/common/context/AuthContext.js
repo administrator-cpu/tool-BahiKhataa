@@ -11,23 +11,32 @@ export function AuthProvider({ children }) {
   const [userRole, setUserRole] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
 
-  useEffect(() => {
+ useEffect(() => {
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
     if (currentPath === '/login') {
       setIsAuthChecking(false);
       return;
     }
 
-        
+    // 💡 IMPROVEMENT: Check local state/storage first
+    const cachedRole = localStorage.getItem('userRole'); 
+    if (cachedRole) {
+      setUserRole(cachedRole);
+      setIsAuthChecking(false); // Stop loading immediately
+    }
+
     const fetchFreshProfile = async () => {
-     try {
-        const {data} = await userService.getProfile();
+      try {
+        const { data } = await userService.getProfile();
         const secureUser = data?.data?.user || data?.user;
 
         if (secureUser) {
-          setUserRole(secureUser.role); 
-        }} catch (error) {
-        if (error.data?.status === 401) {
+          setUserRole(secureUser.role);
+          // 💡 Cache it for the next time the dashboard loads
+          localStorage.setItem('userRole', secureUser.role);
+        }
+      } catch (error) {
+        if (error.response?.status === 401) { 
            logout();
         }
       } finally {
@@ -35,7 +44,10 @@ export function AuthProvider({ children }) {
       }
     };
 
-    fetchFreshProfile();
+    // Only fetch if we didn't have a cached role
+    if (!cachedRole) {
+      fetchFreshProfile();
+    }
   }, []);
 
   const logout = async () => {

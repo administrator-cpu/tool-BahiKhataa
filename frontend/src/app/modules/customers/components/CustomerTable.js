@@ -1,22 +1,27 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { UserCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { UserCircle, AlertCircle, ArrowRight, CheckCircle2, Link as LinkIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-// 1. Import our new clean logic!
 import { safeFormatCurrency } from '@/app/common/lib/utils';
 import { useCustomerTotals } from '../hooks/useCustomerTotals';
 
-export default function CustomerTable({ customers = [], currentUserRole }) {
+// 1. Import the new modal we just created!
+import CompareAndSyncModal from './CompareAndSyncModal';
 
-  
+export default function CustomerTable({ customers = [], currentUserRole, onRefresh }) {
   const router = useRouter();
   
-  // 2. Guarantee array safety and grab totals from our custom hook
-  const safeCustomers = Array.isArray(customers) ? customers : [];
+  // 2. Modal State for CRM Sync
+  const [syncModal, setSyncModal] = useState({
+    isOpen: false,
+    customerId: null,
+    customerName: ''
+  });
   
+  const safeCustomers = Array.isArray(customers) ? customers : [];
   const totals = useCustomerTotals(safeCustomers);
 
   return (
@@ -42,7 +47,7 @@ export default function CustomerTable({ customers = [], currentUserRole }) {
           <tbody className="divide-y divide-slate-100 text-sm">
             {safeCustomers.length > 0 ? (
               safeCustomers.map((customer, index) => {
-                const companyName = (customer?.company||customer?.companyName) ? String(customer.company) : 'Unknown';
+                const companyName = (customer?.company||customer?.companyName) ? String(customer.company || customer.companyName) : 'Unknown';
                 const initial = companyName.charAt(0).toUpperCase();
 
                 return (
@@ -57,7 +62,27 @@ export default function CustomerTable({ customers = [], currentUserRole }) {
                         <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
                           {initial}
                         </div>
-                        <p className="font-bold text-slate-900">{companyName}</p>
+                        <div className="flex flex-col items-start gap-1">
+                          <p className="font-bold text-slate-900 flex items-center gap-2">
+                            {companyName}
+                            
+                            {/* 🟢 THE NEW CRM SYNC BADGES */}
+                            {currentUserRole === 'admin' && (
+                              customer.isCrmLinked ? (
+                                <span title="Linked to CRM" className="text-emerald-500 bg-emerald-50 rounded-full p-0.5">
+                                  <CheckCircle2 size={14} />
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => setSyncModal({ isOpen: true, customerId: customer.id, customerName: companyName })}
+                                  className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-md border border-indigo-200 hover:bg-indigo-600 hover:text-white flex items-center gap-1 transition-colors shadow-sm"
+                                >
+                                  <LinkIcon size={10} /> Sync
+                                </button>
+                              )
+                            )}
+                          </p>
+                        </div>
                       </div>
                     </td>
 
@@ -127,6 +152,17 @@ export default function CustomerTable({ customers = [], currentUserRole }) {
           </tfoot>
         </table>
       </div>
+
+      {/* 3. Render the Modal */}
+      <CompareAndSyncModal 
+        isOpen={syncModal.isOpen}
+        onClose={() => setSyncModal({ isOpen: false, customerId: null, customerName: '' })}
+        customerId={syncModal.customerId}
+        customerName={syncModal.customerName}
+        onSuccess={() => {
+          if (onRefresh) onRefresh();
+        }}
+      />
     </div>
   );
 }
