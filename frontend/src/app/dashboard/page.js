@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, Plus, Users, Loader2, LogOut } from "lucide-react";
+import { Search, Plus, Users, Loader2, LogOut, ChartLine } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 // Hooks & Context
@@ -20,7 +20,7 @@ export default function UnifiedDashboard() {
 
   // 1. Grab state from our new custom layers!
   const { userRole, isAuthChecking, logout } = useAuth();
-  const { customers, isLoading } = useCustomers();
+  const { customers, isLoading,refresh } = useCustomers();
 
   // 2. Handle Search
   const visibleCustomers = customers.filter(
@@ -98,6 +98,13 @@ export default function UnifiedDashboard() {
               >
                 Add User
               </Button>
+              <Button
+                variant="secondary"
+                icon={ChartLine}
+                onClick={() => router.push(`/dashboard/audit`)}
+              >
+                Audit Log
+              </Button>
             </>
           )}
           <Button
@@ -121,6 +128,7 @@ export default function UnifiedDashboard() {
         <CustomerTable
           customers={visibleCustomers}
           currentUserRole={userRole}
+          onRefresh={refresh} 
         />
       )}
     </DashboardLayout>

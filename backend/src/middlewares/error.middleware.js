@@ -13,27 +13,23 @@ export const globalErrorHandler = (err, req, res, next) => {
 
   if (error.name === 'JsonWebTokenError') error = handleJWTError();
   if (error.name === 'TokenExpiredError') error = handleJWTExpiredError();
+
   if (err.name === "ValidationError") {
-    const message = Object.values(err.errors).map(e => e.message).join(", ");
-    return res.status(400).json({ success: false, message });
+    err = new AppError(Object.values(err.errors).map((e) => e.message).join(", "),400);
   }
 
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue)[0];
-    return res.status(409).json({
-      success: false,
-      message: `${field} already exists`,
-    });
+    err = new AppError(`${field} already exists`, 409);
   }
 
-  logger.error("Request Error:", {
-    message: err.message,
-    statusCode: err.statusCode,
-    path: req.originalUrl,
-    method: req.method,
-    ip: req.ip,
-    ...(isDev && { stack: err.stack }),
-  });
+  logger.error(
+    `${req.method} ${req.originalUrl} | ${err.message}${err.statusCode ? ` | Status: ${err.statusCode}` : ""}`
+  );
+
+  if (isDev && err.stack) {
+    logger.error(err.stack);
+  }
 
   const message = isDev
     ? err.message

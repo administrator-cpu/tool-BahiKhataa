@@ -9,17 +9,18 @@ import { useAsyncAction } from '@/app/common/hooks/useAsyncAction';
 export function useCreateCustomer() {
   const router = useRouter();
   
-  // 💡 THE FIX: Extract the full `user` object directly from your context
   const { user, userRole } = useAuth(); 
   const { execute, isLoading: isSubmitting } = useAsyncAction();
 
   const [formData, setFormData] = useState({ 
     companyName: '', 
     gst: '', 
-    manager: '', 
-    address: '' ,
-    email:"",
+    manager: '',  
+    address: '',
+    email: "",
+    crmId: ''      
   });
+  
   const [activeManagers, setActiveManagers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
 
@@ -32,8 +33,6 @@ export function useCreateCustomer() {
       const fetchManagers = async () => {
         try {
           const { data } = await userService.getEmployees();
-          
-          // Added a fallback to ensure it doesn't crash if the backend response shape changes slightly
           setActiveManagers(data?.data?.users || data?.users || []);
         } catch (error) {
           console.error(error);
@@ -43,11 +42,10 @@ export function useCreateCustomer() {
       
       fetchManagers();
     } else {
-      // Auto-assign to self if employee
-      setFormData(prev => ({ ...prev, managerId: user._id || user.id }));
+      // 💡 FIX 2: Set 'manager', not 'managerId'
+      setFormData(prev => ({ ...prev, manager: user._id || user.id }));
     }
     
-  // 💡 THE FIX: Add user as a dependency so this fires the millisecond auth is ready
   }, [user, userRole]); 
 
   const handleChange = (e) => {
