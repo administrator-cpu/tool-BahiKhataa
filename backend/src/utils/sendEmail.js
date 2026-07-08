@@ -45,13 +45,13 @@ const wrapInTemplate = (htmlContent) => {
 -- CORE MAILING MICROSERVICE DISPATCHER --
 ==========================================
 */
-const dispatchEmail = async (to, subject, htmlContent) => {
+const dispatchEmail = async (to, subject, htmlContent, bcc = null) => {
   const payload = {
     to,
     subject,
     html: wrapInTemplate(htmlContent),
     text: subject,
-    fromName: "Fab Five"
+    fromName: "FAB5 Network"
   };
   if (bcc) {
     payload.bcc = bcc;

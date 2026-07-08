@@ -14,11 +14,14 @@ const signToken = (id) => {
 const cookieOptions = {
   expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: true,
   sameSite: 'None'
 };
 
 export const login = catchAsync(async (req, res, next) => {
+  if (!req.body.email || !req.body.password) {
+    return next(new AppError('Please provide email and password', 400));
+  }
   const email = req.body.email.toLowerCase();
   const { password } = req.body;
 
@@ -46,7 +49,11 @@ export const login = catchAsync(async (req, res, next) => {
 });
 
 export const forgotPassword = catchAsync(async (req, res, next) => {
-  const user = await User.findOne({ email: req.body.email });
+  if (!req.body.email) {
+    return next(new AppError('Please provide an email address.', 400));
+  }
+  const email = req.body.email.toLowerCase();
+  const user = await User.findOne({ email });
   if (!user) {
     return next(new AppError('No user found with that email address.', 404));
   }
@@ -82,6 +89,7 @@ export const forgotPassword = catchAsync(async (req, res, next) => {
     user.passwordResetOtp = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
+    console.error("Forgot Password Email Error:", err.message || err);
     return next(new AppError('Error sending email. Try again later.', 500));
   }
 });
@@ -90,10 +98,11 @@ export const verifyOtp = catchAsync(async (req, res, next) => {
   if (!req.body.otp || !req.body.email) {
     return next(new AppError('Please provide both email and OTP', 400));
   }
+  const email = req.body.email.toLowerCase();
   const hashedOtp = crypto.createHash('sha256').update(req.body.otp).digest('hex');
 
   const user = await User.findOne({
-    email: req.body.email,
+    email: email,
     passwordResetOtp: hashedOtp,
     passwordResetExpires: { $gt: Date.now() }
   });
@@ -138,7 +147,7 @@ export const resetPassword = catchAsync(async (req, res, next) => {
 
 export const getAllUsers = catchAsync(async (req, res, next) => {
   const users = await User.find().select('name email role _id');
-  
+
   res.status(200).json({
     status: 'success',
     results: users.length,
