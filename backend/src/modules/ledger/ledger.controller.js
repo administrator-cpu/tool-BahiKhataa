@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Ledger from './ledger.model.js';
 import Customer from '../customer/customer.model.js';
-import { sendPaymentAdjustmentEmail } from '../../utils/emailService.js';
+import { sendPaymentAdjustmentEmail } from '../../utils/sendEmail.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
