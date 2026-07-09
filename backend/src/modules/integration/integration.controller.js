@@ -82,3 +82,52 @@ export const getExternalFinancialsByName = catchAsync(async (req, res, next) => 
     }
   });
 });
+
+// ==========================================
+// 📊 EXPORT FINANCIAL DATA (PAGINATED)
+// ==========================================
+export const getAllCustomersFinancials = catchAsync(async (req, res, next) => {
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const skip = (page - 1) * limit;
+
+  const customers = await Customer.find()
+    .select('companyName crmId availableAdvance')
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  const totalCustomers = await Customer.countDocuments();
+
+  const financialPromises = customers.map(async (customer) => {
+    const agingReport = await Ledger.getAgingReport(customer._id);
+
+    const totalOutstanding = agingReport ?
+      (agingReport.days0To30 || 0) +
+      (agingReport.days31To60 || 0) +
+      (agingReport.days61To90 || 0) +
+      (agingReport.above90 || 0) : 0;
+
+    return {
+      bahiKhataId: customer._id,
+      crmId: customer.crmId || null,
+      companyName: customer.companyName,
+      availableAdvance: customer.availableAdvance || 0,
+      totalOutstanding,
+      aging: agingReport
+    };
+  });
+
+  const pageData = await Promise.all(financialPromises);
+
+  return res.status(200).json({
+    status: 'success',
+    pagination: {
+      totalRecords: totalCustomers,
+      currentPage: page,
+      totalPages: Math.ceil(totalCustomers / limit),
+      pageSize: limit
+    },
+    data: pageData
+  });
+});
