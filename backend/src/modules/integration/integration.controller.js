@@ -63,11 +63,7 @@ export const getExternalFinancialsByName = catchAsync(async (req, res, next) => 
 
   const agingReport = await Ledger.getAgingReport(customer._id);
 
-  const totalOutstanding = agingReport ?
-    (agingReport.days0To30 || 0) +
-    (agingReport.days31To60 || 0) +
-    (agingReport.days61To90 || 0) +
-    (agingReport.above90 || 0) : 0;
+  const totalOutstanding = agingReport?.total || 0;
 
   return res.status(200).json({
     status: 'success',
@@ -102,11 +98,7 @@ export const getAllCustomersFinancials = catchAsync(async (req, res, next) => {
   const financialPromises = customers.map(async (customer) => {
     const agingReport = await Ledger.getAgingReport(customer._id);
 
-    const totalOutstanding = agingReport ?
-      (agingReport.days0To30 || 0) +
-      (agingReport.days31To60 || 0) +
-      (agingReport.days61To90 || 0) +
-      (agingReport.above90 || 0) : 0;
+    const totalOutstanding = agingReport?.total || 0;
 
     return {
       bahiKhataId: customer._id,
