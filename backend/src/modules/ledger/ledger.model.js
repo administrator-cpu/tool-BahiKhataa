@@ -86,6 +86,8 @@ const ledgerSchema = new mongoose.Schema({
 ledgerSchema.index({ customer: 1, date: -1 });
 ledgerSchema.index({ status: 1 });
 ledgerSchema.index({ paymentStatus: 1 });
+ledgerSchema.index({ status: 1, date: 1 });
+ledgerSchema.index({ status: 1, paymentStatus: 1, debit: 1 });
 
 ledgerSchema.statics.getAgingReport = async function (customerId) {
   const unpaidBills = await this.find({
