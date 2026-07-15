@@ -42,7 +42,7 @@ const corsOptions = {
     return callback(new AppError("CORS not allowed by server", 403));
   },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'token'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 };
 app.set('trust proxy', 1);
