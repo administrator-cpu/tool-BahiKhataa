@@ -49,13 +49,14 @@ const formatPeriodLabel = (period, range) => {
 export const getCollectionsOverview = catchAsync(async (req, res, next) => {
   const isEmployee = String(req.query.isEmployee) === 'true';
   const employeeName = req.query.employeeName;
+  const employeeEmail = req.query.employeeEmail;
 
   // 1. Create a dynamic pipeline stage array instead of a simple match object
   let employeePipelineStages = [];
   let userRecord = null;
 
-  if (isEmployee && employeeName) {
-    userRecord = await User.findOne({ name: { $regex: new RegExp(`^${employeeName}$`, 'i') } });
+  if (isEmployee && employeeEmail) {
+    userRecord = await User.findOne({ email: employeeEmail });
     
     if (userRecord) {
       // Look up the customer and ensure this employee is the manager of that customer
