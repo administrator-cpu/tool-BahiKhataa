@@ -1,6 +1,6 @@
 import Ledger from "../ledger/ledger.model.js";
 import catchAsync from "../../utils/catchAsync.js";
-import { getLegacyCollectionsGrowth, LEGACY_NAME_MAP } from "./legacyCollectionsGrowth.js";
+import { getLegacyCollectionsGrowth, LEGACY_KEY_TO_EMAIL } from "./legacyCollectionsGrowth.js";
 import User from "../auth/user.model.js";
 import mongoose from 'mongoose';
  
@@ -51,7 +51,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
   const employeeName = req.query.employeeName;
   const employeeEmail = req.query.employeeEmail;
 
-  // 1. Create a dynamic pipeline stage array instead of a simple match object
   let employeePipelineStages = [];
   let userRecord = null;
 
@@ -59,7 +58,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     userRecord = await User.findOne({ email: employeeEmail });
     
     if (userRecord) {
-      // Look up the customer and ensure this employee is the manager of that customer
       employeePipelineStages = [
         {
           $lookup: {
@@ -73,7 +71,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
         { $match: { "customerDoc.manager": new mongoose.Types.ObjectId(userRecord._id) } }
       ];
     } else {
-      // Fail-safe: If user isn't found, force an empty result rather than global data
       employeePipelineStages = [{ $match: { _id: null } }]; 
     }
   }
@@ -95,10 +92,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     : growthRangeStart;
  
   const [monthlyTrend, agingBuckets, efficiencyTotals, defaulters, growthRows] = await Promise.all([
-    // 1) Collection vs Outstanding by month
     Ledger.aggregate([
       { $match: { status: "approved", date: { $gte: rangeStart } } },
-      ...employeePipelineStages, // Inject the manager filter here
+      ...employeePipelineStages, 
       {
         $group: {
           _id: { y: { $year: "$date" }, m: { $month: "$date" } },
@@ -108,10 +104,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
  
-    // 2) Aging analysis buckets
     Ledger.aggregate([
       { $match: { status: "approved", paymentStatus: { $ne: "Paid" }, debit: { $gt: 0 } } },
-      ...employeePipelineStages, // Inject the manager filter here
+      ...employeePipelineStages, 
       {
         $project: {
           balanceDue: 1,
@@ -128,10 +123,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
  
-    // 3) Collection efficiency
     Ledger.aggregate([
       { $match: { status: "approved" } },
-      ...employeePipelineStages, // Inject the manager filter here
+      ...employeePipelineStages, 
       {
         $group: {
           _id: null,
@@ -141,10 +135,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
  
-    // 4) Top 5 defaulters
     Ledger.aggregate([
       { $match: { status: "approved", paymentStatus: { $ne: "Paid" }, debit: { $gt: 0 } } },
-      ...employeePipelineStages, // Inject the manager filter here
+      ...employeePipelineStages, 
       { $group: { _id: "$customer", outstanding: { $sum: "$balanceDue" } } },
       { $sort: { outstanding: -1 } },
       { $limit: 5 },
@@ -153,7 +146,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
           from: "customers",
           localField: "_id",
           foreignField: "_id",
-          as: "customerData", // Renamed to avoid collision with customerDoc
+          as: "customerData", 
           pipeline: [{ $project: { companyName: 1 } }]
         }
       },
@@ -168,10 +161,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
  
-    // 5) Collections Growth (live)
     Ledger.aggregate([
       { $match: { status: "approved", credit: { $gt: 0 }, date: { $gte: liveGrowthStart } } },
-      ...employeePipelineStages, // Inject the manager filter here
+      ...employeePipelineStages, 
       {
         $group: {
           _id: {
@@ -185,7 +177,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
         $project: {
           _id: 0,
           period: "$_id.period",
-          // If we are filtering by employee, use their name. If Global, label as Global.
           employeeName: isEmployee ? employeeName : "Global", 
           collected: 1,
           sortDate: 1
@@ -223,7 +214,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     : 0;
  
   // ---- shape live collections growth rows ----
-  const periodMap = new Map();
+const periodMap = new Map();
  
   growthRows.forEach((r) => {
     if (!periodMap.has(r.period)) {
@@ -234,17 +225,18 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       });
     }
     const entry = periodMap.get(r.period);
-    const normalizedName = LEGACY_NAME_MAP[r.employeeName] || r.employeeName;
+    
+    const employeeDbName = r.employeeName; 
 
     entry.Global += r.collected;
-    entry[normalizedName] = (entry[normalizedName] || 0) + r.collected;
+    
+    entry[employeeDbName] = (entry[employeeDbName] || 0) + r.collected;
   });
  
   const liveGrowthRows = Array.from(periodMap.values());
  
-  // 3) Pass the employeeName to filter the legacy data as well
   const legacyGrowthRows = growthRange === "month" 
-    ? getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeName : null) 
+    ? await getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeEmail : null) 
     : [];
  
   const allGrowthRows = [...legacyGrowthRows, ...liveGrowthRows].sort((a, b) => a.sortDate - b.sortDate);

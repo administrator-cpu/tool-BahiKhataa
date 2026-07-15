@@ -1,11 +1,14 @@
-export const LEGACY_NAME_MAP = {
-  Akash: "Akash Gupta",
-  Asha: "Asha Jha",
-  Arunav:  "Arunav Moulik",
-  Abhay: "Abhay Singh",
-  Anil: "Anil Kumar Jha",
-  Khushboo: "Khushboo Pandey",
-  Manoj: "Manoj Tyagi"
+import User from "../auth/user.model.js";
+import { resolveEmployeeNameByEmail } from "./employeeIdentity.js";
+
+export const LEGACY_KEY_TO_EMAIL = {
+  Akash: "akash@fab5network.com",
+  Asha: "asha@fab5network.com",
+  Arunav: "arunav@fab5network.com", 
+  Abhay: "abhay@fab5network.com",
+  Anil: "anil@fab5network.com",
+  Khushboo: "khushboo@fab5network.com",
+  Manoj: "manoj@fab5network.com"
 };
 
 const RAW_HISTORICAL_GROWTH = [
@@ -41,11 +44,16 @@ const RAW_HISTORICAL_GROWTH = [
   { rawDate: new Date(2026, 5, 1), Akash: 1752747, Asha: 3147589, Arunav: 4046132, Abhay: 657964, Anil: 161012, Khushboo: 750998, Manoj: 2691866 },
 ];
 
-/**
- * Returns historical growth rows (mapped to current employee names, with a
- * computed Global total) strictly before `cutoffDate`.
- */
-export const getLegacyCollectionsGrowth = (cutoffDate, employeeName = null) => {
+
+export const getLegacyCollectionsGrowth = async (cutoffDate, targetEmployeeEmail = null) => {
+  const emailsToFetch = Object.values(LEGACY_KEY_TO_EMAIL);
+  const users = await User.find({ email: { $in: emailsToFetch } });
+  
+  const emailToExactNameMap = {};
+  users.forEach(u => {
+    emailToExactNameMap[u.email] = u.name;
+  });
+
   return RAW_HISTORICAL_GROWTH
     .filter((row) => row.rawDate < cutoffDate)
     .map((row) => {
@@ -55,11 +63,13 @@ export const getLegacyCollectionsGrowth = (cutoffDate, employeeName = null) => {
         Global: 0
       };
 
-      Object.entries(LEGACY_NAME_MAP).forEach(([legacyKey, fullName]) => {
-        if (employeeName && fullName !== employeeName) return;
+      Object.entries(LEGACY_KEY_TO_EMAIL).forEach(([legacyKey, email]) => {
+        if (targetEmployeeEmail && email !== targetEmployeeEmail) return;
 
+        const exactDbName = emailToExactNameMap[email] || legacyKey;
         const val = row[legacyKey] || 0;
-        shaped[fullName] = (shaped[fullName] || 0) + val;
+
+        shaped[exactDbName] = (shaped[exactDbName] || 0) + val;
         shaped.Global += val;
       });
 
