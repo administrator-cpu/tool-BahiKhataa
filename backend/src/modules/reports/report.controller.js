@@ -91,7 +91,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     ? LIVE_DATA_CUTOFF
     : growthRangeStart;
 
-  const [monthlyTrend, agingBuckets, efficiencyTotals, defaulters, growthRows] = await Promise.all([
+  const [monthlyTrend, agingBuckets, efficiencyTotals, defaulters, growthRows, priorTotals, priorGrowthTotals] = await Promise.all([
     // 1. monthlyTrend — billed vs collected per month (feeds collectionVsOutstanding)
     Ledger.aggregate([
       { $match: { status: "approved", date: { $gte: rangeStart } } },
@@ -155,7 +155,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
 
     // 5. growthRows — live collections growth, broken out by resolved employee name (feeds collectionsGrowth)
     Ledger.aggregate([
-      { $match: { status: "approved", credit: { $gt: 0 }, date: { $gte: liveGrowthStart } } },
+      { $match: { status: "approved", date: { $gte: liveGrowthStart } } },
       ...employeePipelineStages,
 
       {
@@ -183,6 +183,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
             period: { $dateToString: { format: dateFormat, date: "$date" } },
             employeeName: { $ifNull: ["$growthManagerDoc.name", "Unassigned"] }
           },
+          billed: { $sum: "$debit" },
           collected: { $sum: "$credit" },
           sortDate: { $min: "$date" }
         }
@@ -192,24 +193,89 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
           _id: 0,
           period: "$_id.period",
           employeeName: "$_id.employeeName",
+          billed: 1,
           collected: 1,
           sortDate: 1
         }
       },
       { $sort: { sortDate: 1 } }
+    ]),
+
+    // 6. priorTotals — everything billed/collected BEFORE the chart window, used to seed the
+    // running outstanding balance so month 1 reflects real carried-over debt, not a false zero
+    Ledger.aggregate([
+      { $match: { status: "approved", date: { $lt: rangeStart } } },
+      ...employeePipelineStages,
+      {
+        $group: {
+          _id: null,
+          billed: { $sum: "$debit" },
+          collected: { $sum: { $ifNull: ["$credit", 0] } }
+        }
+      }
+    ]),
+
+    // 7. priorGrowthTotals — billed/collected per resolved employee BEFORE liveGrowthStart,
+    // used to seed each employee's running outstanding balance for the "revenue" calc
+    // (revenue = this period's billed + outstanding carried from the previous period)
+    Ledger.aggregate([
+      { $match: { status: "approved", date: { $lt: liveGrowthStart } } },
+      ...employeePipelineStages,
+      {
+        $lookup: {
+          from: "customers",
+          localField: "customer",
+          foreignField: "_id",
+          as: "growthCustomerDoc"
+        }
+      },
+      { $unwind: { path: "$growthCustomerDoc", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "growthCustomerDoc.manager",
+          foreignField: "_id",
+          as: "growthManagerDoc"
+        }
+      },
+      { $unwind: { path: "$growthManagerDoc", preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: { $ifNull: ["$growthManagerDoc.name", "Unassigned"] },
+          billed: { $sum: "$debit" },
+          collected: { $sum: { $ifNull: ["$credit", 0] } }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          employeeName: "$_id",
+          billed: 1,
+          collected: 1
+        }
+      }
     ])
   ]);
 
   // ---- shape monthly trend, filling in zero months ----
+  // "outstanding" is a running cumulative balance: prior carried-over debt + this month's
+  // billing, minus this month's collections. It is NOT reset to zero each month, since unpaid
+  // balances from earlier months don't disappear just because a new month started.
   const monthMap = new Map(monthlyTrend.map((m) => [`${m._id.y}-${m._id.m}`, m]));
+  const priorEff = priorTotals[0] || { billed: 0, collected: 0 };
+  let runningOutstanding = priorEff.billed - priorEff.collected;
+
   const collectionVsOutstanding = getLastNMonths(monthsBack).map(({ year, month, label }) => {
     const rec = monthMap.get(`${year}-${month}`);
     const billed = rec ? rec.billed : 0;
     const collected = rec ? rec.collected : 0;
+
+    runningOutstanding += (billed - collected);
+
     return {
       month: label,
       collected: Math.round(collected * 100) / 100,
-      outstanding: Math.round((billed - collected) * 100) / 100
+      outstanding: Math.round(runningOutstanding * 100) / 100
     };
   });
 
@@ -228,26 +294,55 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     : 0;
 
   // ---- shape live collections growth rows ----
-  const periodMap = new Map();
+  // "Revenue" per period per employee = this period's billed amount + the outstanding
+  // balance carried over from the previous period (NOT raw cash collected). We walk periods
+  // in chronological order, tracking a running outstanding balance per employee, seeded from
+  // priorGrowthTotals (everything before the live growth window).
+  // NOTE: legacy (pre-Jul-2026) rows from getLegacyCollectionsGrowth are left as-is — they only
+  // ever had 'collected' cash figures, so they keep that definition; only live months use the
+  // new billed + prev-outstanding revenue formula.
 
+  // group growthRows by period, tracking each employee's billed/collected within that period
+  const periodBuckets = new Map(); // period -> { sortDate, employees: Map(name -> {billed, collected}) }
   growthRows.forEach((r) => {
-    if (!periodMap.has(r.period)) {
-      periodMap.set(r.period, {
-        time: formatPeriodLabel(r.period, growthRange),
-        Global: 0,
-        sortDate: r.sortDate
-      });
+    if (!periodBuckets.has(r.period)) {
+      periodBuckets.set(r.period, { sortDate: r.sortDate, employees: new Map() });
     }
-    const entry = periodMap.get(r.period);
-
-    const employeeDbName = r.employeeName;
-
-    entry.Global += r.collected;
-
-    entry[employeeDbName] = (entry[employeeDbName] || 0) + r.collected;
+    const bucket = periodBuckets.get(r.period);
+    if (r.sortDate < bucket.sortDate) bucket.sortDate = r.sortDate;
+    bucket.employees.set(r.employeeName, { billed: r.billed || 0, collected: r.collected || 0 });
   });
 
-  const liveGrowthRows = Array.from(periodMap.values());
+  // sort periods chronologically so the running outstanding balance carries forward correctly
+  const orderedPeriods = Array.from(periodBuckets.entries()).sort(
+    (a, b) => a[1].sortDate - b[1].sortDate
+  );
+
+  // seed each employee's running outstanding balance from everything before the live window
+  const runningOutstandingByEmployee = new Map();
+  priorGrowthTotals.forEach((p) => {
+    runningOutstandingByEmployee.set(p.employeeName, (p.billed || 0) - (p.collected || 0));
+  });
+
+  const liveGrowthRows = orderedPeriods.map(([period, bucket]) => {
+    const entry = {
+      time: formatPeriodLabel(period, growthRange),
+      Global: 0,
+      sortDate: bucket.sortDate
+    };
+
+    bucket.employees.forEach(({ billed, collected }, employeeName) => {
+      const prevOutstanding = runningOutstandingByEmployee.get(employeeName) || 0;
+      const revenue = billed + prevOutstanding;
+
+      entry[employeeName] = (entry[employeeName] || 0) + revenue;
+      entry.Global += revenue;
+
+      runningOutstandingByEmployee.set(employeeName, prevOutstanding + billed - collected);
+    });
+
+    return entry;
+  });
 
   const legacyGrowthRows = growthRange === "month"
     ? await getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeEmail : null)
