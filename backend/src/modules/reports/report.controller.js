@@ -245,14 +245,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
           billed: { $sum: "$debit" },
           collected: { $sum: { $ifNull: ["$credit", 0] } }
         }
-      },
-      {
-        $project: {
-          _id: 0,
-          employeeName: "$_id",
-          billed: 1,
-          collected: 1
-        }
       }
     ])
   ]);
@@ -270,12 +262,18 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     const billed = rec ? rec.billed : 0;
     const collected = rec ? rec.collected : 0;
 
-    runningOutstanding += (billed - collected);
+    // TARGET OUTSTANDING: The total amount we need to collect this month.
+    // Which is = (Unpaid debt from ALL previous months) + (New bills generated THIS month)
+    const targetOutstandingForChart = runningOutstanding + billed;
+
+    // UPDATE RUNNING BALANCE FOR NEXT MONTH: 
+    // Now subtract this month's collections to get the carry-forward debt for the next loop
+    runningOutstanding = runningOutstanding + billed - collected;
 
     return {
       month: label,
       collected: Math.round(collected * 100) / 100,
-      outstanding: Math.round(runningOutstanding * 100) / 100
+      outstanding: Math.round(targetOutstandingForChart * 100) / 100
     };
   });
 
@@ -294,14 +292,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     : 0;
 
   // ---- shape live collections growth rows ----
-  // "Revenue" per period per employee = this period's billed amount + the outstanding
-  // balance carried over from the previous period (NOT raw cash collected). We walk periods
-  // in chronological order, tracking a running outstanding balance per employee, seeded from
-  // priorGrowthTotals (everything before the live growth window).
-  // NOTE: legacy (pre-Jul-2026) rows from getLegacyCollectionsGrowth are left as-is — they only
-  // ever had 'collected' cash figures, so they keep that definition; only live months use the
-  // new billed + prev-outstanding revenue formula.
-
   // group growthRows by period, tracking each employee's billed/collected within that period
   const periodBuckets = new Map(); // period -> { sortDate, employees: Map(name -> {billed, collected}) }
   growthRows.forEach((r) => {
@@ -333,12 +323,12 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
 
     bucket.employees.forEach(({ billed, collected }, employeeName) => {
       const prevOutstanding = runningOutstandingByEmployee.get(employeeName) || 0;
-      const revenue = billed + prevOutstanding;
+      const revenue = billed ;
 
       entry[employeeName] = (entry[employeeName] || 0) + revenue;
       entry.Global += revenue;
 
-      runningOutstandingByEmployee.set(employeeName, prevOutstanding + billed - collected);
+      runningOutstandingByEmployee.set(employeeName,  billed - collected);
     });
 
     return entry;
