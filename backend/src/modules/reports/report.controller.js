@@ -92,7 +92,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     : growthRangeStart;
 
   const [monthlyTrend, agingBuckets, efficiencyTotals, defaulters, growthRows, priorTotals, priorGrowthTotals] = await Promise.all([
-    // 1. monthlyTrend — billed vs collected per month (feeds collectionVsOutstanding)
     Ledger.aggregate([
       { $match: { status: "approved", date: { $gte: rangeStart } } },
       ...employeePipelineStages,
@@ -153,7 +152,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
 
-    // 5. growthRows — live collections growth, broken out by resolved employee name (feeds collectionsGrowth)
     Ledger.aggregate([
       { $match: { status: "approved", date: { $gte: liveGrowthStart } } },
       ...employeePipelineStages,
@@ -201,8 +199,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       { $sort: { sortDate: 1 } }
     ]),
 
-    // 6. priorTotals — everything billed/collected BEFORE the chart window, used to seed the
-    // running outstanding balance so month 1 reflects real carried-over debt, not a false zero
     Ledger.aggregate([
       { $match: { status: "approved", date: { $lt: rangeStart } } },
       ...employeePipelineStages,
@@ -215,9 +211,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       }
     ]),
 
-    // 7. priorGrowthTotals — billed/collected per resolved employee BEFORE liveGrowthStart,
-    // used to seed each employee's running outstanding balance for the "revenue" calc
-    // (revenue = this period's billed + outstanding carried from the previous period)
     Ledger.aggregate([
       { $match: { status: "approved", date: { $lt: liveGrowthStart } } },
       ...employeePipelineStages,
@@ -249,35 +242,43 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     ])
   ]);
 
-  // ---- shape monthly trend, filling in zero months ----
-  // "outstanding" is a running cumulative balance: prior carried-over debt + this month's
-  // billing, minus this month's collections. It is NOT reset to zero each month, since unpaid
-  // balances from earlier months don't disappear just because a new month started.
-  const monthMap = new Map(monthlyTrend.map((m) => [`${m._id.y}-${m._id.m}`, m]));
-  const priorEff = priorTotals[0] || { billed: 0, collected: 0 };
-  let runningOutstanding = priorEff.billed - priorEff.collected;
+  const legacyGrowthRows = growthRange === "month"
+    ? await getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeEmail : null)
+    : [];
+
+  const legacyMonthMap = new Map();
+  legacyGrowthRows.forEach(row => {
+    const dateObj = new Date(row.sortDate);
+    if (!isNaN(dateObj.getTime())) {
+      legacyMonthMap.set(`${dateObj.getFullYear()}-${dateObj.getMonth() + 1}`, {
+        billed: row.Global || 0 
+      });
+    }
+  });
+
+  const liveMonthMap = new Map(monthlyTrend.map((m) => [`${m._id.y}-${m._id.m}`, m]));
 
   const collectionVsOutstanding = getLastNMonths(monthsBack).map(({ year, month, label }) => {
-    const rec = monthMap.get(`${year}-${month}`);
-    const billed = rec ? rec.billed : 0;
-    const collected = rec ? rec.collected : 0;
+    const key = `${year}-${month}`;
+    
+    const liveRec = liveMonthMap.get(key);
+    let billed = liveRec ? liveRec.billed : 0;
+    let collected = liveRec ? liveRec.collected : 0;
 
-    // TARGET OUTSTANDING: The total amount we need to collect this month.
-    // Which is = (Unpaid debt from ALL previous months) + (New bills generated THIS month)
-    const targetOutstandingForChart = runningOutstanding + billed;
+    if (year === 2026 && (month === 4 || month === 5 || month === 6)) {
+      const legacyRec = legacyMonthMap.get(key);
+      billed = legacyRec ? legacyRec.billed : 0; 
+    }
 
-    // UPDATE RUNNING BALANCE FOR NEXT MONTH: 
-    // Now subtract this month's collections to get the carry-forward debt for the next loop
-    runningOutstanding = runningOutstanding + billed - collected;
+    const outstanding = billed - collected;
 
     return {
       month: label,
       collected: Math.round(collected * 100) / 100,
-      outstanding: Math.round(targetOutstandingForChart * 100) / 100
+      outstanding: Math.round(outstanding * 100) / 100
     };
   });
 
-  // ---- shape aging buckets ----
   const bucketLabels = { 0: "0-30 Days", 31: "31-60 Days", 61: "61-90 Days", 91: "90+ Days" };
   const agingMap = new Map(agingBuckets.map((b) => [b._id, b.total]));
   const agingAnalysis = [0, 31, 61, 91].map((b) => ({
@@ -285,15 +286,12 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     total: Math.round((agingMap.get(b) || 0) * 100) / 100
   }));
 
-  // ---- collection efficiency ----
   const eff = efficiencyTotals[0] || { billed: 0, collected: 0 };
   const collectionEfficiency = eff.billed > 0
     ? Math.round((eff.collected / eff.billed) * 1000) / 10
     : 0;
 
-  // ---- shape live collections growth rows ----
-  // group growthRows by period, tracking each employee's billed/collected within that period
-  const periodBuckets = new Map(); // period -> { sortDate, employees: Map(name -> {billed, collected}) }
+  const periodBuckets = new Map(); 
   growthRows.forEach((r) => {
     if (!periodBuckets.has(r.period)) {
       periodBuckets.set(r.period, { sortDate: r.sortDate, employees: new Map() });
@@ -303,12 +301,10 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     bucket.employees.set(r.employeeName, { billed: r.billed || 0, collected: r.collected || 0 });
   });
 
-  // sort periods chronologically so the running outstanding balance carries forward correctly
   const orderedPeriods = Array.from(periodBuckets.entries()).sort(
     (a, b) => a[1].sortDate - b[1].sortDate
   );
 
-  // seed each employee's running outstanding balance from everything before the live window
   const runningOutstandingByEmployee = new Map();
   priorGrowthTotals.forEach((p) => {
     runningOutstandingByEmployee.set(p.employeeName, (p.billed || 0) - (p.collected || 0));
@@ -333,10 +329,6 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
 
     return entry;
   });
-
-  const legacyGrowthRows = growthRange === "month"
-    ? await getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeEmail : null)
-    : [];
 
   const allGrowthRows = [...legacyGrowthRows, ...liveGrowthRows].sort((a, b) => a.sortDate - b.sortDate);
 
