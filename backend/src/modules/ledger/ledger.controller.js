@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Ledger from './ledger.model.js';
 import Customer from '../customer/customer.model.js';
 import { sendPaymentAdjustmentEmail } from '../../utils/sendEmail.js';
+import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
@@ -238,7 +239,7 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
       if (isEditingUnpaidBill) {
         log.debit = incomingDebit;
-        log.balanceDue = incomingDebit; 
+        log.balanceDue = incomingDebit;
       }
       await log.save();
       return res.status(200).json({ status: 'success', data: { log } });
@@ -368,6 +369,20 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
     log.status = 'approved';
     await processPaymentAllocations(log);
     await log.save();
+    if (log.allocations && log.allocations.length > 0) {
+      for (const alloc of log.allocations) {
+        const updatedBill = await Ledger.findById(alloc.billId);
+        if (updatedBill && updatedBill.invoiceNo) {
+          await syncInvoicePaymentStatus(
+            updatedBill.invoiceNo,
+            updatedBill.paymentStatus,
+            updatedBill.balanceDue,
+            updatedBill.amountPaid,
+            updatedBill._id // 🆕 Passing the Ledger ID here!
+          );
+        }
+      }
+    }
     sendPaymentAdjustmentEmail(log);
   } else if (action === 'reject') {
     if (!rejectionReason) return next(new AppError('Rejection reason is required', 400));
@@ -473,6 +488,20 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   if (newEntry.credit > 0 || newEntry.advanceAmount > 0) {
     await processPaymentAllocations(newEntry);
     await newEntry.save();
+    if (preparedAllocations.length > 0) {
+      for (const alloc of preparedAllocations) {
+        const updatedBill = await Ledger.findById(alloc.billId);
+        if (updatedBill && updatedBill.invoiceNo) {
+          await syncInvoicePaymentStatus(
+            updatedBill.invoiceNo,
+            updatedBill.paymentStatus,
+            updatedBill.balanceDue,
+            updatedBill.amountPaid,
+            updatedBill._id
+          );
+        }
+      }
+    }
     sendPaymentAdjustmentEmail(newEntry);
   }
 
