@@ -9,13 +9,14 @@ const invoicingClient = axios.create({
   }
 });
 
-export const syncInvoicePaymentStatus = async (invoiceNo, paymentStatus, balanceDue, amountPaid) => {
+export const syncInvoicePaymentStatus = async (invoiceNo, paymentStatus, balanceDue, amountPaid, ledgerId) => {
   if (!invoiceNo) return;
   try {
-    await invoicingClient.patch(`/api/invoices/internal/${invoiceNo}/payment-status`, {
+    await invoicingClient.patch(`/api/invoices/internal/${encodeURIComponent(invoiceNo)}/payment-status`, {
       paymentStatus,
       balanceDue,
-      amountPaid
+      amountPaid,
+      ledgerId
     });
     console.log(`Successfully synced invoice ${invoiceNo} status: ${paymentStatus}`);
   } catch (error) {
