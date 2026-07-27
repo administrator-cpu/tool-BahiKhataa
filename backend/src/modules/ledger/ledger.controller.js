@@ -6,6 +6,8 @@ import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
+const toFixed2 = (num) => Math.round((Number(num) || 0) * 100) / 100;
+
 const processPaymentAllocations = async (paymentLog) => {
   let totalAllocated = 0;
 
@@ -14,9 +16,9 @@ const processPaymentAllocations = async (paymentLog) => {
       const bill = await Ledger.findById(alloc.billId);
 
       if (bill && bill.debit > 0) {
-        bill.amountPaid += alloc.amountApplied;
-        bill.balanceDue -= alloc.amountApplied;
-        bill.balanceDue = Math.round(bill.balanceDue * 100) / 100;
+        // Sanitize the math
+        bill.amountPaid = toFixed2(bill.amountPaid + alloc.amountApplied);
+        bill.balanceDue = toFixed2(bill.balanceDue - alloc.amountApplied);
 
         if (bill.balanceDue <= 0) {
           bill.balanceDue = 0;
@@ -31,30 +33,30 @@ const processPaymentAllocations = async (paymentLog) => {
         });
 
         await bill.save();
-        totalAllocated += alloc.amountApplied;
+        totalAllocated = toFixed2(totalAllocated + alloc.amountApplied);
       }
     }
   }
 
   if (paymentLog.isUsingAdvance) {
-    const unallocated = paymentLog.advanceAmount - totalAllocated;
+    const unallocated = toFixed2(paymentLog.advanceAmount - totalAllocated);
     paymentLog.unallocatedAmount = unallocated;
 
     if (unallocated > 0) {
       const targetCustomer = await Customer.findById(paymentLog.customer);
       if (targetCustomer) {
-        targetCustomer.availableAdvance += unallocated;
+        targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance + unallocated);
         await targetCustomer.save();
       }
     }
   } else {
-    const unallocated = paymentLog.credit - totalAllocated;
+    const unallocated = toFixed2(paymentLog.credit - totalAllocated);
     paymentLog.unallocatedAmount = unallocated;
 
     if (unallocated > 0) {
       const targetCustomer = await Customer.findById(paymentLog.customer);
       if (targetCustomer) {
-        targetCustomer.availableAdvance += unallocated;
+        targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance + unallocated);
         await targetCustomer.save();
       }
     }
@@ -62,12 +64,12 @@ const processPaymentAllocations = async (paymentLog) => {
 
   return paymentLog;
 };
-/* Asynchronous Save Risk(For Future) */
-/* MongoDB Transactions (session.startTransaction()). */
-/* This ensures that if any save fails, the entire batch rolls back. */
 
 export const addPendingPayment = catchAsync(async (req, res, next) => {
-  const { customer, paymentDate, amount, bankName, utrReference, remarks, billId, isUsingAdvance, allocations } = req.body;
+  let { customer, paymentDate, amount, bankName, utrReference, remarks, billId, isUsingAdvance, allocations } = req.body;
+
+  // Sanitize the incoming amount immediately
+  amount = toFixed2(amount);
 
   if (!customer || !paymentDate || !amount || (!isUsingAdvance && !bankName)) {
     return next(new AppError('Please provide customer, paymentDate, amount, and bankName.', 400));
@@ -101,30 +103,21 @@ export const addPendingPayment = catchAsync(async (req, res, next) => {
     const targetBill = billMap.get(item.billId.toString());
 
     if (targetBill) {
-      const amountToApply = Math.min(item.amountApplied, targetBill.balanceDue);
+      // Sanitize the allocation mapping
+      const amountToApply = toFixed2(Math.min(item.amountApplied, targetBill.balanceDue));
 
       preparedAllocations.push({
         billId: targetBill._id,
         amountApplied: amountToApply
       });
 
-      totalAllocatedRequested += amountToApply;
+      totalAllocatedRequested = toFixed2(totalAllocatedRequested + amountToApply);
     }
   }
+
   if (totalAllocatedRequested > amount) {
     return next(new AppError('The total amount allocated to bills cannot exceed the actual payment amount.', 400));
   }
-
-  // const targetBill = await Ledger.findById(billId);
-  // if (targetBill && targetBill.debit > 0) {
-  //   const amountToApply = Math.min(amount, targetBill.balanceDue);
-
-  //   preparedAllocations.push({
-  //     billId: targetBill._id,
-  //     amountApplied: amountToApply
-  //   });
-  // }
-
 
   const log = await Ledger.create({
     customer,
@@ -147,7 +140,6 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
   const { manager } = req.query;
 
   const logs = await Ledger.find({
-    // addedBy: manager,
     status: 'pending'
   }).populate({
     path: 'customer',
@@ -176,14 +168,14 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
     if (description) log.description = description;
     if (remarks) log.remarks = remarks;
     if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
-    if (credit !== undefined) log.credit = Number(credit);
-    if (req.body.advanceAmount !== undefined) log.advanceAmount = Number(req.body.advanceAmount);
+    if (credit !== undefined) log.credit = toFixed2(credit);
+    if (req.body.advanceAmount !== undefined) log.advanceAmount = toFixed2(req.body.advanceAmount);
     if (allocations) log.allocations = allocations;
 
-    const totalAmount = log.credit > 0 ? log.credit : log.advanceAmount;
+    const totalAmount = toFixed2(log.credit > 0 ? log.credit : log.advanceAmount);
 
     if (log.allocations && log.allocations.length > 0) {
-      const totalAllocated = log.allocations.reduce((sum, alloc) => sum + Number(alloc.amountApplied), 0);
+      const totalAllocated = log.allocations.reduce((sum, alloc) => toFixed2(sum + Number(alloc.amountApplied)), 0);
 
       if (totalAllocated > totalAmount) {
         return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total payment amount is only ₹${totalAmount}. Please adjust the allocations.`, 400));
@@ -197,18 +189,16 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
   if (req.user.role === 'admin') {
 
     if (log.status === 'approved') {
-
       const existingDebit = log.debit || 0;
       const existingCredit = log.credit || 0;
 
-      const incomingDebit = (debit !== undefined && debit !== '') ? Number(debit) : existingDebit;
-      const incomingCredit = (credit !== undefined && credit !== '') ? Number(credit) : existingCredit;
+      const incomingDebit = (debit !== undefined && debit !== '') ? toFixed2(debit) : existingDebit;
+      const incomingCredit = (credit !== undefined && credit !== '') ? toFixed2(credit) : existingCredit;
 
       const isChangingCredit = incomingCredit !== existingCredit;
       const isChangingDebit = incomingDebit !== existingDebit;
 
       const isChangingAllocations = allocations !== undefined && JSON.stringify(allocations) !== JSON.stringify(log.allocations || []);
-
       const isChangingAdvance = isUsingAdvance !== undefined && Boolean(isUsingAdvance) !== Boolean(log.isUsingAdvance);
       const isChangingCustomer = customer !== undefined && customer !== log.customer.toString();
 
@@ -251,13 +241,13 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       if (remarks) log.remarks = remarks;
       if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
       if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
-      if (credit !== undefined) log.credit = Number(credit);
-      if (debit !== undefined) log.debit = Number(debit);
+      if (credit !== undefined) log.credit = toFixed2(credit);
+      if (debit !== undefined) log.debit = toFixed2(debit);
       if (allocations) log.allocations = allocations;
 
-      const totalAmount = log.credit > 0 ? log.credit : log.advanceAmount;
+      const totalAmount = toFixed2(log.credit > 0 ? log.credit : log.advanceAmount);
       if (log.allocations && log.allocations.length > 0 && totalAmount > 0) {
-        const totalAllocated = log.allocations.reduce((sum, alloc) => sum + Number(alloc.amountApplied), 0);
+        const totalAllocated = log.allocations.reduce((sum, alloc) => toFixed2(sum + Number(alloc.amountApplied)), 0);
         if (totalAllocated > totalAmount) {
           return next(new AppError(`Math Error: You allocated ₹${totalAllocated} to bills, but the total amount is only ₹${totalAmount}.`, 400));
         }
@@ -298,9 +288,9 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
           for (const alloc of log.allocations) {
             const bill = await Ledger.findById(alloc.billId);
             if (bill) {
-              bill.amountPaid -= alloc.amountApplied;
-              bill.balanceDue += alloc.amountApplied;
-              bill.balanceDue = Math.round(bill.balanceDue * 100) / 100;
+              // Sanitize rollback math
+              bill.amountPaid = toFixed2(bill.amountPaid - alloc.amountApplied);
+              bill.balanceDue = toFixed2(bill.balanceDue + alloc.amountApplied);
 
               if (bill.balanceDue === bill.debit) {
                 bill.paymentStatus = 'Unpaid';
@@ -320,15 +310,15 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
         if (log.credit > 0 && log.unallocatedAmount > 0) {
           const targetCustomer = await Customer.findById(log.customer);
           if (targetCustomer) {
-            targetCustomer.availableAdvance -= log.unallocatedAmount;
+            targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance - log.unallocatedAmount);
             if (targetCustomer.availableAdvance < 0) targetCustomer.availableAdvance = 0;
             await targetCustomer.save();
           }
         } else if (log.advanceAmount > 0) {
-          const netAdvancedDeducted = log.advanceAmount - log.unallocatedAmount;
+          const netAdvancedDeducted = toFixed2(log.advanceAmount - log.unallocatedAmount);
           const targetCustomer = await Customer.findById(log.customer);
           if (targetCustomer) {
-            targetCustomer.availableAdvance += netAdvancedDeducted;
+            targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance + netAdvancedDeducted);
             await targetCustomer.save();
           }
         }
@@ -361,7 +351,7 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
         return next(new AppError('Customer advance balance has dropped since the Agent requested this. Cannot approve.', 400));
       }
 
-      targetCustomer.availableAdvance -= log.advanceAmount;
+      targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance - log.advanceAmount);
       await targetCustomer.save();
 
       log.description = `Paid via Customer Advance (Approved)`;
@@ -378,7 +368,7 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
             updatedBill.paymentStatus,
             updatedBill.balanceDue,
             updatedBill.amountPaid,
-            updatedBill._id // 🆕 Passing the Ledger ID here!
+            updatedBill._id
           );
         }
       }
@@ -394,7 +384,6 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
   }
 
   await log.save();
-
   res.status(200).json({ status: 'success', data: { log } });
 });
 
@@ -402,9 +391,8 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   const { isUsingAdvance, billId, allocations, ...entryData } = req.body;
 
   const hasDebit = entryData.debit !== undefined && entryData.debit !== '';
-  const incomingDebit = hasDebit ? Number(entryData.debit) : 0;
-
-  const amount = Number(entryData.credit) || 0;
+  const incomingDebit = hasDebit ? toFixed2(entryData.debit) : 0;
+  const amount = entryData.credit ? toFixed2(entryData.credit) : 0;
 
   if (!entryData.customer || !entryData.date) {
     return next(new AppError('Customer and date are required.', 400));
@@ -431,12 +419,19 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
     if (!targetCustomer || targetCustomer.availableAdvance < amount) {
       return next(new AppError('Customer does not have enough advance balance for this payment.', 400));
     }
-    targetCustomer.availableAdvance -= amount;
+    targetCustomer.availableAdvance = toFixed2(targetCustomer.availableAdvance - amount);
     await targetCustomer.save();
 
     entryData.description = `Paid via Customer Advance - ${entryData.description || entryData.desc || ''}`;
     entryData.advanceAmount = amount;
     entryData.credit = 0;
+  } else {
+    // Sanitize entries to ensure DB records are clean
+    entryData.credit = amount;
+  }
+
+  if (hasDebit) {
+    entryData.debit = incomingDebit;
   }
 
   let preparedAllocations = [];
@@ -459,14 +454,14 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
         const targetBill = billMap.get(item.billId.toString());
 
         if (targetBill) {
-          const amountToApply = Math.min(item.amountApplied, targetBill.balanceDue);
+          const amountToApply = toFixed2(Math.min(item.amountApplied, targetBill.balanceDue));
 
           preparedAllocations.push({
             billId: targetBill._id,
             amountApplied: amountToApply
           });
 
-          totalAllocatedRequested += amountToApply;
+          totalAllocatedRequested = toFixed2(totalAllocatedRequested + amountToApply);
         }
       }
 
@@ -508,36 +503,6 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   res.status(201).json({ status: 'success', data: { log: newEntry } });
 });
 
-// export const getCustomerDashboard = catchAsync(async (req, res, next) => {
-//   const { customerId } = req.params;
-
-//   const page = parseInt(req.query.page) || 1;
-//   const limit = parseInt(req.query.limit) || 20;
-//   const skip = (page - 1) * limit;
-
-//   const paginatedLogs = await Ledger.find({ customer: customerId }).sort({ date: -1 }).skip(skip).limit(limit);
-
-//   const totalLogs = await Ledger.countDocuments({ customer: customerId });
-//   const totalPages = Math.ceil(totalLogs / limit);
-
-//   const agingReport = await Ledger.getAgingReport(customerId);
-
-//   res.status(200).json({
-//     status: 'success',
-//     data: {
-//       aging: agingReport,
-//       pagination: {
-//         currentPage: page,
-//         totalPages: totalPages,
-//         totalRecords: totalLogs,
-//         hasNextPage: page < totalPages,
-//         hasPrevPage: page > 1
-//       },
-//       transactions: paginatedLogs
-//     }
-//   });
-// });
-
 export const getCustomerDashboard = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   if (!customerId) return next(new AppError('Customer ID is required', 400));
@@ -557,8 +522,8 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
     data: {
       transactions: ledgerData,
       totals: {
-        outstanding: agingReport.total,
-        availableAdvance: customerDoc ? customerDoc.availableAdvance : 0
+        outstanding: toFixed2(agingReport.total),
+        availableAdvance: customerDoc ? toFixed2(customerDoc.availableAdvance) : 0
       },
       aging: agingReport
     }
@@ -594,6 +559,64 @@ export const getLedgerEntryDetails = catchAsync(async (req, res, next) => {
     status: 'success',
     data: {
       log
+    }
+  });
+});
+
+// ==========================================
+// 🧹 ONE-TIME DATABASE SANITIZATION SCRIPT
+// ==========================================
+export const sanitizeDatabaseNumbers = catchAsync(async (req, res, next) => {
+
+  console.log("Starting database sanitization...");
+  let customersUpdated = 0;
+  let ledgersUpdated = 0;
+
+  const customers = await Customer.find();
+  for (const customer of customers) {
+    if (customer.availableAdvance !== undefined) {
+      customer.availableAdvance = toFixed2(customer.availableAdvance);
+      await customer.save({ validateBeforeSave: false });
+      customersUpdated++;
+    }
+  }
+  console.log(`✅ Cleaned ${customersUpdated} Customers`);
+
+  const ledgers = await Ledger.find();
+  for (const log of ledgers) {
+    // Top-level financial fields
+    if (log.credit !== undefined) log.credit = toFixed2(log.credit);
+    if (log.debit !== undefined) log.debit = toFixed2(log.debit);
+    if (log.amountPaid !== undefined) log.amountPaid = toFixed2(log.amountPaid);
+    if (log.balanceDue !== undefined) log.balanceDue = toFixed2(log.balanceDue);
+    if (log.advanceAmount !== undefined) log.advanceAmount = toFixed2(log.advanceAmount);
+    if (log.unallocatedAmount !== undefined) log.unallocatedAmount = toFixed2(log.unallocatedAmount);
+
+    // Nested Arrays: Allocations
+    if (log.allocations && log.allocations.length > 0) {
+      log.allocations.forEach(alloc => {
+        if (alloc.amountApplied !== undefined) alloc.amountApplied = toFixed2(alloc.amountApplied);
+      });
+    }
+
+    // Nested Arrays: Payments Received
+    if (log.paymentsReceived && log.paymentsReceived.length > 0) {
+      log.paymentsReceived.forEach(payment => {
+        if (payment.amountApplied !== undefined) payment.amountApplied = toFixed2(payment.amountApplied);
+      });
+    }
+
+    await log.save({ validateBeforeSave: false });
+    ledgersUpdated++;
+  }
+  console.log(`✅ Cleaned ${ledgersUpdated} Ledger Entries`);
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Database floating-point numbers successfully sanitized!',
+    details: {
+      customersSanitized: customersUpdated,
+      ledgerEntriesSanitized: ledgersUpdated
     }
   });
 });
