@@ -4,6 +4,8 @@ import AppError from '../../utils/appError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // ==========================================
 // 🏦 EXPORT FINANCIAL DATA TO OTHER APPS
 // ==========================================
@@ -137,23 +139,22 @@ export const syncHistoricalInvoices = catchAsync(async (req, res, next) => {
   let successCount = 0;
   let failCount = 0;
 
-  // We use a for...of loop to ensure it waits for the Axios call to finish 
-  // before moving to the next one. This prevents you from accidentally 
-  // DDoS-ing your own Invoicing App with hundreds of requests at once!
   for (const bill of allBills) {
-    try {
-      await syncInvoicePaymentStatus(
-        bill.invoiceNo,
-        bill.paymentStatus,
-        bill.balanceDue,
-        bill.amountPaid,
-        bill._id
-      );
+    const isSuccess = await syncInvoicePaymentStatus(
+      bill.invoiceNo,
+      bill.paymentStatus,
+      bill.balanceDue,
+      bill.amountPaid,
+      bill._id
+    );
+
+    if (isSuccess) {
       successCount++;
-    } catch (error) {
+    } else {
       failCount++;
-      console.error(`Failed to backfill historical bill ${bill.invoiceNo}`);
     }
+
+    await sleep(300); 
   }
 
   return res.status(200).json({

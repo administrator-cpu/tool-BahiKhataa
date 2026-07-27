@@ -19,7 +19,9 @@ export const syncInvoicePaymentStatus = async (invoiceNo, paymentStatus, balance
       ledgerId
     });
     console.log(`Successfully synced invoice ${invoiceNo} status: ${paymentStatus}`);
+    return true;
   } catch (error) {
     console.error(`Failed to sync payment status for invoice ${invoiceNo}:`, error?.response?.data || error.message);
+    return false;
   }
 };
