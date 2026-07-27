@@ -2,6 +2,7 @@ import Customer from '../customer/customer.model.js';
 import Ledger from '../ledger/ledger.model.js';
 import AppError from '../../utils/appError.js';
 import catchAsync from '../../utils/catchAsync.js';
+import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 
 // ==========================================
 // 🏦 EXPORT FINANCIAL DATA TO OTHER APPS
@@ -121,5 +122,47 @@ export const getAllCustomersFinancials = catchAsync(async (req, res, next) => {
       pageSize: limit
     },
     data: pageData
+  });
+});
+
+// ==========================================
+// 🔄 ONE-TIME HISTORICAL DATA BACKFILL
+// ==========================================
+export const syncHistoricalInvoices = catchAsync(async (req, res, next) => {
+  const allBills = await Ledger.find({
+    invoiceNo: { $exists: true, $ne: null, $ne: '' },
+    debit: { $gt: 0 }
+  }).lean();
+
+  let successCount = 0;
+  let failCount = 0;
+
+  // We use a for...of loop to ensure it waits for the Axios call to finish 
+  // before moving to the next one. This prevents you from accidentally 
+  // DDoS-ing your own Invoicing App with hundreds of requests at once!
+  for (const bill of allBills) {
+    try {
+      await syncInvoicePaymentStatus(
+        bill.invoiceNo,
+        bill.paymentStatus,
+        bill.balanceDue,
+        bill.amountPaid,
+        bill._id
+      );
+      successCount++;
+    } catch (error) {
+      failCount++;
+      console.error(`Failed to backfill historical bill ${bill.invoiceNo}`);
+    }
+  }
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Historical sync complete!',
+    details: {
+      totalFound: allBills.length,
+      syncedSuccessfully: successCount,
+      failedSyncs: failCount
+    }
   });
 });
