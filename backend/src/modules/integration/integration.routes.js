@@ -1,7 +1,7 @@
 import express from 'express';
 import { protectInternalApps } from '../../middlewares/internalAuth.js';
 import {
-  getExternalCustomerFinancials, getExternalFinancialsByName,
+  getExternalCustomerFinancials, getExternalFinancialsByName,getCustomerOutstandingByCrmId,
   getAllCustomersFinancials, syncHistoricalInvoices, reconcileCustomerLedger, auditCustomerLedger
 } from '../integration/integration.controller.js';
 
@@ -15,6 +15,7 @@ router.get('/customers/financials/search', getExternalFinancialsByName);
 router.get('/ledger/audit/:customerId', auditCustomerLedger);
 router.post('/ledger/fix/:customerId', reconcileCustomerLedger);
 router.get('/customers/:crmId/financials', getExternalCustomerFinancials);
+router.get('/customers/crm/:crmId/outstanding', getCustomerOutstandingByCrmId);
 router.get('/invoices/backfill', syncHistoricalInvoices);
 
 export default router;

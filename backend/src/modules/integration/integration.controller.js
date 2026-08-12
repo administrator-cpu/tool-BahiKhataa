@@ -176,6 +176,51 @@ export const syncHistoricalInvoices = catchAsync(async (req, res, next) => {
   })();
 });
 
+export const receiveNewInvoice = catchAsync(async (req, res, next) => {
+  const { crmId, invoiceNo, amount, date, description } = req.body;
+  if (!crmId || !invoiceNo || amount === undefined) {
+    return next(new AppError('Missing required fields: crmId, invoiceNo, or amount.', 400));
+  }
+
+  const customer = await Customer.findOne({ crmId });
+  if (!customer) {
+    return res.status(404).json({
+      status: 'fail',
+      message: `Customer with the recieved CRM ID not found in Bahi Khata. Please link them first.`
+    });
+  }
+
+  const existingBill = await Ledger.findOne({ invoiceNo });
+
+  if (existingBill) {
+    return res.status(200).json({
+      status: 'success',
+      message: `Invoice ${invoiceNo} already exists in ledger. Skipped duplicate creation.`,
+      data: { log: existingBill }
+    });
+  }
+
+  const sanitizedDebit = toWhole(amount);
+
+  const newEntry = await Ledger.create({
+    customer: customer._id,
+    date: date || new Date(),
+    description: description || `Sales Invoice - ${invoiceNo}`,
+    invoiceNo: invoiceNo,
+    debit: sanitizedDebit,
+    balanceDue: sanitizedDebit,
+    paymentStatus: 'Unpaid',
+    status: 'approved',
+    isUsingAdvance: false
+  });
+
+  return res.status(201).json({
+    status: 'success',
+    message: `Successfully debited ${sanitizedDebit} to customer ledger for invoice ${invoiceNo}`,
+    data: { log: newEntry }
+  });
+});
+
 // ==========================================
 //  LEDGER RECONCILIATION CONTROLLER
 // ==========================================
@@ -429,5 +474,35 @@ export const auditCustomerLedger = catchAsync(async (req, res, next) => {
       ? 'WARNING: Ledger discrepancies detected.'
       : 'SUCCESS: Ledger is perfectly mathematically sound.',
     auditReport: discrepancies
+  });
+});
+
+export const getCustomerOutstandingByCrmId = catchAsync(async (req, res, next) => {
+  const { crmId } = req.params;
+
+  // 1. The Strict Fallback: Reject empty or whitespace-only strings
+  if (!crmId || crmId.trim() === '' || crmId === 'undefined' || crmId === 'null') {
+    return next(new AppError('Invalid Request: crmId is required to fetch financial data.', 400));
+  }
+
+  // 2. Locate the Customer
+  const customer = await Customer.findOne({ crmId: crmId.trim() }).select('_id crmId companyName');
+
+  if (!customer) {
+    return next(new AppError(`Data Sync Error: No customer found in Bahi Khata with CRM ID '${crmId}'.`, 404));
+  }
+
+  // 3. Calculate the true outstanding balance
+  const agingReport = await Ledger.getAgingReport(customer._id);
+
+  // 4. Return the exact data the Invoicing App needs (truncated to whole numbers)
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      bahiKhataId: customer._id,
+      crmId: customer.crmId,
+      companyName: customer.companyName,
+      outstandingBalance: toWhole(agingReport.total)
+    }
   });
 });
