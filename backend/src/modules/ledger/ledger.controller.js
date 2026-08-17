@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import excelJS from 'exceljs';
 import Ledger from './ledger.model.js';
 import Customer from '../customer/customer.model.js';
 import { sendPaymentAdjustmentEmail } from '../../utils/sendEmail.js';
@@ -6,7 +7,7 @@ import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
-const toWhole = (num) => Math.round((Number(num) || 0) * 100) / 100;
+const toWhole = (num) => Math.trunc(Number(num) || 0);
 
 const processPaymentAllocations = async (paymentLog) => {
   let totalAllocated = 0;
@@ -653,4 +654,159 @@ export const sanitizeDatabaseNumbers = catchAsync(async (req, res, next) => {
       ledgerEntriesSanitized: ledgersUpdated
     }
   });
+});
+
+/* ================================== */
+// GET MONTHLY FINANCIAL REPORTS
+/* ================================== */
+export const exportFinancialReport = catchAsync(async (req, res, next) => {
+  // 1. EXTRACT TARGET CUSTOMERS (Works for both POST body or GET query)
+  let targetIds = [];
+  if (req.body && req.body.customerIds && req.body.customerIds.length > 0) {
+    targetIds = req.body.customerIds;
+  } else if (req.query.customerIds) {
+    targetIds = req.query.customerIds.split(',');
+  }
+
+  // 2. DEFINE THE FINANCIAL YEAR BOUNDARIES
+  const fyStartYear = 2026;
+  const fyStartDate = new Date(`${fyStartYear}-04-01T00:00:00.000Z`);
+  const currentDate = new Date();
+
+  // 3. FETCH DATA (SMART QUERIES)
+  const customerQuery = targetIds.length > 0 ? { _id: { $in: targetIds } } : {};
+  const ledgerQuery = targetIds.length > 0
+    ? { status: 'approved', customer: { $in: targetIds } }
+    : { status: 'approved' };
+
+  const customers = await Customer.find(customerQuery).populate('manager', 'name').lean();
+
+  if (customers.length === 0) {
+    return next(new AppError('No customers found matching those criteria.', 404));
+  }
+
+  const allLogs = await Ledger.find(ledgerQuery).lean();
+
+  // Group logs by customer for fast memory processing
+  const logsByCustomer = new Map();
+  allLogs.forEach(log => {
+    const custId = log.customer.toString();
+    if (!logsByCustomer.has(custId)) logsByCustomer.set(custId, []);
+    logsByCustomer.get(custId).push(log);
+  });
+
+  // 3. INITIALIZE EXCEL WORKBOOK
+  const workbook = new excelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Customer Financials');
+
+  // 4. BUILD DYNAMIC COLUMNS
+  const columns = [
+    { header: 'Customer Name', key: 'customerName', width: 30 },
+    { header: 'Manager Name', key: 'managerName', width: 20 },
+    { header: 'March Closing Balance', key: 'marchClosing', width: 25 },
+  ];
+
+  // Dynamically add columns for each month from April to Current Month
+  const monthsToProcess = [];
+  let loopDate = new Date(fyStartDate);
+
+  while (loopDate <= currentDate || loopDate.getMonth() === currentDate.getMonth()) {
+    const monthName = loopDate.toLocaleString('default', { month: 'long' });
+    const year = loopDate.getFullYear();
+    const monthKey = `${monthName}_${year}`; // e.g., "April_2026"
+
+    monthsToProcess.push({ month: loopDate.getMonth(), year: year, key: monthKey, label: monthName });
+
+    columns.push(
+      { header: `${monthName} Invoice(s)`, key: `${monthKey}_invoice`, width: 20 },
+      { header: `${monthName} Collection`, key: `${monthKey}_collection`, width: 20 },
+      { header: `${monthName} Adjustment`, key: `${monthKey}_adjustment`, width: 20 },
+      { header: `${monthName} CN`, key: `${monthKey}_cn`, width: 20 }
+    );
+
+    loopDate.setMonth(loopDate.getMonth() + 1); // Move to next month
+  }
+
+  worksheet.columns = columns;
+
+  // 5. PROCESS DATA PER CUSTOMER
+  customers.forEach(customer => {
+    const logs = logsByCustomer.get(customer._id.toString()) || [];
+
+    // Calculate True March Closing Balance (Everything before April 1st)
+    let marchDebits = 0;
+    let marchCredits = 0;
+
+    logs.forEach(log => {
+      const logDate = new Date(log.date);
+      if (logDate < fyStartDate) {
+        marchDebits += toWhole(log.debit);
+        // Include advanceAmount as a credit equivalent
+        marchCredits += toWhole(log.credit) + toWhole(log.advanceAmount);
+      }
+    });
+
+    const rowData = {
+      customerName: customer.companyName || 'N/A',
+      managerName: customer.manager?.name || 'Unassigned',
+      marchClosing: marchDebits - marchCredits,
+    };
+
+    // Calculate Month-by-Month Buckets
+    monthsToProcess.forEach(({ month, year, key }) => {
+      let monthInvoices = 0;
+      let monthCollections = 0;
+      let monthAdjustments = 0;
+      let monthCNs = 0;
+
+      const monthLogs = logs.filter(log => {
+        const d = new Date(log.date);
+        return d.getMonth() === month && d.getFullYear() === year;
+      });
+
+      monthLogs.forEach(log => {
+        const text = (log.description || '') + ' ' + (log.remarks || '');
+        const textLower = text.toLowerCase();
+
+        // Invoices (Strictly Debits)
+        if (toWhole(log.debit) > 0) {
+          monthInvoices += toWhole(log.debit);
+        }
+
+        // Credits / Collections / Adjustments / CNs
+        const totalCreditVal = toWhole(log.credit) + toWhole(log.advanceAmount);
+        if (totalCreditVal > 0) {
+          // MUTUALLY EXCLUSIVE BUCKETING
+          if (textLower.includes('adjustment') || textLower.includes('adj')) {
+            monthAdjustments += totalCreditVal;
+          }
+          else if (textLower.includes('cn') || textLower.includes('credit note') || textLower.includes('creditnote')) {
+            monthCNs += totalCreditVal;
+          }
+          else {
+            // If it's not an adjustment or CN, it MUST be a standard collection
+            monthCollections += totalCreditVal;
+          }
+        }
+      });
+
+      rowData[`${key}_invoice`] = monthInvoices;
+      rowData[`${key}_collection`] = monthCollections;
+      rowData[`${key}_adjustment`] = monthAdjustments;
+      rowData[`${key}_cn`] = monthCNs;
+    });
+
+    worksheet.addRow(rowData);
+  });
+
+  // Style the header row
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+  // 6. STREAM TO CLIENT
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=Financial_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+  await workbook.xlsx.write(res);
+  res.end();
 });

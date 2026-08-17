@@ -8,7 +8,8 @@ import {
   getCustomerDashboard, 
   getPendingQueue,
   getLedgerEntryDetails,
-  sanitizeDatabaseNumbers
+  sanitizeDatabaseNumbers,
+  exportFinancialReport
 } from './ledger.controller.js';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 
@@ -18,6 +19,7 @@ router.use(protect);
 router.get('/pending', restrictTo('admin'), getPendingQueue);
 router.post('/payment', restrictTo('employee', 'admin'), addPendingPayment);
 router.get('/database/sanitize', sanitizeDatabaseNumbers);
+router.post('/export/financial-report', exportFinancialReport);
 router.patch('/:id', restrictTo('employee', 'admin'), editLedgerEntry);
 router.delete('/:id', restrictTo('employee','admin'), deleteLedgerEntry);
 router.patch('/review/:id', restrictTo('admin'), reviewPendingLog);

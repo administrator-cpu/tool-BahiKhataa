@@ -22,6 +22,12 @@ const limiter = rateLimit({
   max: 100, // Limit each IP to 100 requests
   windowMs: 2 * 60 * 1000, // 2 minutes
   message: 'Too many requests from this IP, please try again in 15 minutes!',
+  skip: (req) => {
+    if (req.originalUrl.startsWith('/api/integration')) {
+      return true; 
+    }
+    return false;
+  },
   handler: (req, res, next, options) => {
     return next(new AppError(options.message, 429));
   }
