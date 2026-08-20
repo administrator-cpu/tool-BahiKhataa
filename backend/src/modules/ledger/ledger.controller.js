@@ -660,7 +660,6 @@ export const sanitizeDatabaseNumbers = catchAsync(async (req, res, next) => {
 // GET MONTHLY FINANCIAL REPORTS
 /* ================================== */
 export const exportFinancialReport = catchAsync(async (req, res, next) => {
-  // 1. EXTRACT TARGET CUSTOMERS (Works for both POST body or GET query)
   let targetIds = [];
   if (req.body && req.body.customerIds && req.body.customerIds.length > 0) {
     targetIds = req.body.customerIds;
@@ -668,12 +667,10 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
     targetIds = req.query.customerIds.split(',');
   }
 
-  // 2. DEFINE THE FINANCIAL YEAR BOUNDARIES
   const fyStartYear = 2026;
   const fyStartDate = new Date(`${fyStartYear}-04-01T00:00:00.000Z`);
   const currentDate = new Date();
 
-  // 3. FETCH DATA (SMART QUERIES)
   const customerQuery = targetIds.length > 0 ? { _id: { $in: targetIds } } : {};
   const ledgerQuery = targetIds.length > 0
     ? { status: 'approved', customer: { $in: targetIds } }
@@ -687,7 +684,6 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
 
   const allLogs = await Ledger.find(ledgerQuery).lean();
 
-  // Group logs by customer for fast memory processing
   const logsByCustomer = new Map();
   allLogs.forEach(log => {
     const custId = log.customer.toString();
@@ -695,25 +691,22 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
     logsByCustomer.get(custId).push(log);
   });
 
-  // 3. INITIALIZE EXCEL WORKBOOK
   const workbook = new excelJS.Workbook();
   const worksheet = workbook.addWorksheet('Customer Financials');
 
-  // 4. BUILD DYNAMIC COLUMNS
   const columns = [
     { header: 'Customer Name', key: 'customerName', width: 30 },
     { header: 'Manager Name', key: 'managerName', width: 20 },
     { header: 'March Closing Balance', key: 'marchClosing', width: 25 },
   ];
 
-  // Dynamically add columns for each month from April to Current Month
   const monthsToProcess = [];
   let loopDate = new Date(fyStartDate);
 
   while (loopDate <= currentDate || loopDate.getMonth() === currentDate.getMonth()) {
     const monthName = loopDate.toLocaleString('default', { month: 'long' });
     const year = loopDate.getFullYear();
-    const monthKey = `${monthName}_${year}`; // e.g., "April_2026"
+    const monthKey = `${monthName}_${year}`;
 
     monthsToProcess.push({ month: loopDate.getMonth(), year: year, key: monthKey, label: monthName });
 
@@ -724,16 +717,22 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
       { header: `${monthName} CN`, key: `${monthKey}_cn`, width: 20 }
     );
 
-    loopDate.setMonth(loopDate.getMonth() + 1); // Move to next month
+    loopDate.setMonth(loopDate.getMonth() + 1);
   }
+
+  columns.push(
+    { header: 'Total Gross Debit (Inc. March)', key: 'totalGrossDebit', width: 30 },
+    { header: 'Total Payment Received', key: 'totalPayment', width: 25 },
+    { header: 'Total Adjustment', key: 'totalAdjustment', width: 25 },
+    { header: 'Total Credit Note', key: 'totalCN', width: 25 },
+    { header: 'Final Outstanding Balance', key: 'finalBalance', width: 30 }
+  );
 
   worksheet.columns = columns;
 
-  // 5. PROCESS DATA PER CUSTOMER
   customers.forEach(customer => {
     const logs = logsByCustomer.get(customer._id.toString()) || [];
 
-    // Calculate True March Closing Balance (Everything before April 1st)
     let marchDebits = 0;
     let marchCredits = 0;
 
@@ -741,18 +740,23 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
       const logDate = new Date(log.date);
       if (logDate < fyStartDate) {
         marchDebits += toWhole(log.debit);
-        // Include advanceAmount as a credit equivalent
         marchCredits += toWhole(log.credit) + toWhole(log.advanceAmount);
       }
     });
 
+    const marchClosingBalance = marchDebits - marchCredits;
+
     const rowData = {
       customerName: customer.companyName || 'N/A',
       managerName: customer.manager?.name || 'Unassigned',
-      marchClosing: marchDebits - marchCredits,
+      marchClosing: marchClosingBalance,
     };
 
-    // Calculate Month-by-Month Buckets
+    let totalGrossDebit = marchClosingBalance;
+    let totalPaymentReceived = 0;
+    let totalAdjustmentAmount = 0;
+    let totalCreditNoteAmount = 0;
+
     monthsToProcess.forEach(({ month, year, key }) => {
       let monthInvoices = 0;
       let monthCollections = 0;
@@ -768,15 +772,12 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
         const text = (log.description || '') + ' ' + (log.remarks || '');
         const textLower = text.toLowerCase();
 
-        // Invoices (Strictly Debits)
         if (toWhole(log.debit) > 0) {
           monthInvoices += toWhole(log.debit);
         }
 
-        // Credits / Collections / Adjustments / CNs
         const totalCreditVal = toWhole(log.credit) + toWhole(log.advanceAmount);
         if (totalCreditVal > 0) {
-          // MUTUALLY EXCLUSIVE BUCKETING
           if (textLower.includes('adjustment') || textLower.includes('adj')) {
             monthAdjustments += totalCreditVal;
           }
@@ -784,7 +785,6 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
             monthCNs += totalCreditVal;
           }
           else {
-            // If it's not an adjustment or CN, it MUST be a standard collection
             monthCollections += totalCreditVal;
           }
         }
@@ -794,16 +794,26 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
       rowData[`${key}_collection`] = monthCollections;
       rowData[`${key}_adjustment`] = monthAdjustments;
       rowData[`${key}_cn`] = monthCNs;
+
+      totalGrossDebit += monthInvoices;
+      totalPaymentReceived += monthCollections;
+      totalAdjustmentAmount += monthAdjustments;
+      totalCreditNoteAmount += monthCNs;
     });
+
+    rowData['totalGrossDebit'] = totalGrossDebit;
+    rowData['totalPayment'] = totalPaymentReceived;
+    rowData['totalAdjustment'] = totalAdjustmentAmount;
+    rowData['totalCN'] = totalCreditNoteAmount;
+
+    rowData['finalBalance'] = totalGrossDebit - (totalPaymentReceived + totalAdjustmentAmount + totalCreditNoteAmount);
 
     worksheet.addRow(rowData);
   });
 
-  // Style the header row
   worksheet.getRow(1).font = { bold: true };
   worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
 
-  // 6. STREAM TO CLIENT
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=Financial_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
 
