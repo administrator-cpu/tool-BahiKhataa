@@ -16,7 +16,7 @@ import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 const router = express.Router();
 
 router.use(protect);
-router.get('/pending', restrictTo('admin'), getPendingQueue);
+router.get('/pending', restrictTo('admin',"employee"), getPendingQueue);
 router.post('/payment', restrictTo('employee', 'admin'), addPendingPayment);
 router.get('/database/sanitize', sanitizeDatabaseNumbers);
 router.post('/export/financial-report', exportFinancialReport);
