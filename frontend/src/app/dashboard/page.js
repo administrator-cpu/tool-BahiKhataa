@@ -1,61 +1,72 @@
 "use client";
 
-import React, { useState } from "react";
-import { Search, Plus, Users, Loader2, LogOut, ChartLine } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 // Hooks & Context
 import { useAuth } from "../common/context/AuthContext";
 import { useCustomers } from "../modules/customers/hooks/useCustomers";
+import { vendorService } from "../modules/Vendor/vendor.service";
 
 // Components
 import Button from "../common/components/Button";
 import DashboardLayout from "../common/layout/DashboardLayout";
 import CustomerTable from "../modules/customers/components/CustomerTable";
+import VendorTable from "../modules/Vendor/comnponents/VendorTable";
 import NotificationMenu from "../common/components/NotificationDrawer";
 
 export default function UnifiedDashboard() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
-  // 1. Grab state from our new custom layers!
-  const { userRole, isAuthChecking, logout } = useAuth();
-  const { customers, isLoading,refresh } = useCustomers();
+  const [activeTab, setActiveTab] = useState("customers");
 
-  // 2. Handle Search
-  const visibleCustomers = customers.filter(
-    (c) =>
-      (c.company || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.manager || "").toLowerCase().includes(searchQuery.toLowerCase()),
+  const [vendors, setVendors] = useState([]);
+  const [isVendorsLoading, setIsVendorsLoading] = useState(false);
+
+  const { userRole, isAuthChecking, logout } = useAuth();
+  const { customers, isLoading: isCustomersLoading, refresh: refreshCustomers } = useCustomers();
+
+  useEffect(() => {
+    if (userRole === "admin" && activeTab === "vendors" && vendors.length === 0) {
+      const fetchVendors = async () => {
+        setIsVendorsLoading(true);
+        try {
+          const res = await vendorService.getVendorsDashboard();
+          setVendors(res.data.vendors);
+        } catch (error) {
+          console.error("Failed to load vendors", error);
+        } finally {
+          setIsVendorsLoading(false);
+        }
+      };
+      fetchVendors();
+    }
+  }, [activeTab, userRole, vendors.length]);
+
+  // 3. Handle Search based on active tab
+  const visibleCustomers = (customers || []).filter((c) => {
+    const companyStr = String(c.company || c.companyName || "").toLowerCase();
+    const managerStr = String(c.managerName || c.manager || "").toLowerCase();
+    const searchStr = searchQuery.toLowerCase();
+
+    return companyStr.includes(searchStr) || managerStr.includes(searchStr);
+  });
+
+  const visibleVendors = vendors.filter(
+    (v) => (v.name || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 3. Render Loading State
   if (isAuthChecking) {
     return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "100vh",
-          backgroundColor: "#ffffff",
-          color: "#0f172a",
-        }}
-      >
-        <Loader2
-          size={40}
-          className="animate-spin mb-4"
-          style={{ color: "#2563eb" }}
-        />
-        <p style={{ fontSize: "18px", fontWeight: "500" }}>
-          Authenticating Workspace...
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-white text-slate-900">
+        <Loader2 size={40} className="animate-spin mb-4 text-blue-600" />
+        <p className="text-lg font-medium">Authenticating Workspace...</p>
       </div>
     );
   }
 
-  // 4. Render Main UI
   return (
     <DashboardLayout
       hideBack={true}
@@ -65,6 +76,32 @@ export default function UnifiedDashboard() {
         </span>
       }
     >
+
+      {userRole === "admin" && (
+        <div className="flex justify-center mb-6">
+          <div className="bg-slate-200/50 p-1 rounded-xl inline-flex shadow-sm border border-slate-200">
+            <button
+              onClick={() => setActiveTab("customers")}
+              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "customers"
+                ? "bg-white text-blue-700 shadow-sm border border-slate-200"
+                : "text-slate-500 hover:text-slate-700"
+                }`}
+            >
+              <Briefcase size={16} /> Receivables (Sales)
+            </button>
+            <button
+              onClick={() => setActiveTab("vendors")}
+              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "vendors"
+                ? "bg-white text-purple-700 shadow-sm border border-slate-200"
+                : "text-slate-500 hover:text-slate-700"
+                }`}
+            >
+              <Building2 size={16} /> Payables (Purchases)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div className="relative w-full max-w-md">
           <Search
@@ -73,7 +110,7 @@ export default function UnifiedDashboard() {
           />
           <input
             type="text"
-            placeholder="Search customers or managers..."
+            placeholder={activeTab === 'customers' ? "Search customers or managers..." : "Search vendors..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all font-medium shadow-sm text-slate-900"
@@ -83,53 +120,51 @@ export default function UnifiedDashboard() {
         <div className="flex items-center gap-3">
           {userRole === "admin" && (
             <>
-              <Button
-                variant="primary"
-                icon={Plus}
-                onClick={() => router.push(`/dashboard/customers/create`)}
-              >
-                Onboard Customer
-              </Button>
+              {activeTab === "customers" ? (
+                <Button variant="primary" icon={Plus} onClick={() => router.push(`/dashboard/customers/create`)}>
+                  Onboard Customer
+                </Button>
+              ) : (
+                <Button variant="primary" icon={Plus} className="!bg-purple-600 hover:!bg-purple-700" onClick={() => router.push(`/dashboard/vendors/create`)}>
+                  Add Vendor
+                </Button>
+              )}
 
-              <Button
-                variant="secondary"
-                icon={Users}
-                onClick={() => router.push(`/dashboard/agents/create`)}
-              >
+              <Button variant="secondary" icon={Users} onClick={() => router.push(`/dashboard/agents/create`)}>
                 Add User
               </Button>
-              <Button
-                variant="secondary"
-                icon={ChartLine}
-                onClick={() => router.push(`/dashboard/audit`)}
-              >
+              <Button variant="secondary" icon={ChartLine} onClick={() => router.push(`/dashboard/audit`)}>
                 Audit Log
               </Button>
             </>
           )}
-          <Button
-            variant="danger"
-            icon={LogOut}
-            onClick={() => logout()}
-          ></Button>
-     {userRole === "admin" && <NotificationMenu/>}
-
+          <Button variant="danger" icon={LogOut} onClick={() => logout()} />
+          {userRole === "admin" && <NotificationMenu />}
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex flex-col items-center justify-center h-64 bg-white rounded-3xl border border-slate-200 shadow-sm">
-          <Loader2 size={32} className="animate-spin text-blue-600 mb-4" />
-          <p className="text-slate-500 font-medium text-sm">
-            Syncing portfolio data...
-          </p>
-        </div>
+      {activeTab === "customers" ? (
+        isCustomersLoading ? (
+          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-3xl border border-slate-200 shadow-sm">
+            <Loader2 size={32} className="animate-spin text-blue-600 mb-4" />
+            <p className="text-slate-500 font-medium text-sm">Syncing Receivables...</p>
+          </div>
+        ) : (
+          <CustomerTable
+            customers={visibleCustomers}
+            currentUserRole={userRole}
+            onRefresh={refreshCustomers}
+          />
+        )
       ) : (
-        <CustomerTable
-          customers={visibleCustomers}
-          currentUserRole={userRole}
-          onRefresh={refresh} 
-        />
+        isVendorsLoading ? (
+          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-3xl border border-slate-200 shadow-sm">
+            <Loader2 size={32} className="animate-spin text-purple-600 mb-4" />
+            <p className="text-slate-500 font-medium text-sm">Syncing Payables...</p>
+          </div>
+        ) : (
+          <VendorTable vendors={visibleVendors} />
+        )
       )}
     </DashboardLayout>
   );

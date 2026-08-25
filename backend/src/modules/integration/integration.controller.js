@@ -506,3 +506,73 @@ export const getCustomerOutstandingByCrmId = catchAsync(async (req, res, next) =
     }
   });
 });
+
+// ==========================================
+// 📥 WEBHOOK: RECEIVE NEW INVOICE (DEBIT)
+// ==========================================
+export const syncInvoiceFromInvoicingApp = catchAsync(async (req, res, next) => {
+  const { crmId, invoiceNo, date, amount, description } = req.body;
+
+  if (!crmId || !invoiceNo || amount === undefined || !date) {
+    return next(new AppError('Missing required fields: crmId, invoiceNo, date, and amount are required.', 400));
+  }
+
+  // 1. Anti-Double-Entry Guard (Idempotency)
+  const existingEntry = await Ledger.findOne({ invoiceNo });
+  if (existingEntry) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Invoice already exists in Bahi Khata. Skipped duplicate creation.',
+      data: { log: existingEntry }
+    });
+  }
+
+  // 2. Locate Customer by CRM ID
+  const customer = await Customer.findOne({ crmId: crmId.trim() });
+  if (!customer) {
+    return next(new AppError(`Sync Failed: No customer found in Bahi Khata with CRM ID '${crmId}'.`, 404));
+  }
+
+  // 3. Create the Debit Entry
+  const safeAmount = toWhole(amount);
+
+  const newEntry = await Ledger.create({
+    customer: customer._id,
+    date,
+    invoiceNo,
+    description: description || `Monthly Invoic`,
+    debit: safeAmount,
+    balanceDue: safeAmount, // Starts fully unpaid
+    status: 'approved',
+    paymentStatus: 'Unpaid'
+  });
+
+  return res.status(201).json({
+    status: 'success',
+    message: 'Invoice successfully synced to Bahi Khata ledger.',
+    data: { log: newEntry }
+  });
+});
+
+// ==========================================
+// 🗑️ WEBHOOK: CANCEL/DELETE INVOICE
+// ==========================================
+export const cancelInvoiceFromInvoicingApp = catchAsync(async (req, res, next) => {
+  const { invoiceNo } = req.params;
+
+  const log = await Ledger.findOne({ invoiceNo });
+  if (!log) {
+    return res.status(200).json({ status: 'success', message: 'Invoice not found in ledger. Nothing to delete.' });
+  }
+
+  if (log.amountPaid > 0 || (log.paymentsReceived && log.paymentsReceived.length > 0)) {
+    return next(new AppError('CRITICAL: Cannot delete this invoice from Bahi Khata. There are financial payments already allocated to this bill. Please remove the payments in Bahi Khata first.', 400));
+  }
+
+  await Ledger.findByIdAndDelete(log._id);
+
+  return res.status(200).json({
+    status: 'success',
+    message: `Invoice ${invoiceNo} successfully removed from Bahi Khata ledger.`
+  });
+});
