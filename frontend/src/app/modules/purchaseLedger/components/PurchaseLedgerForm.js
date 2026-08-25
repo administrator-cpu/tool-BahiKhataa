@@ -1,0 +1,323 @@
+import React, { useState, useEffect } from "react";
+import { Plus, Save, FileText, Landmark, Hash, Wallet, ArrowUpRight, ArrowDownRight, Receipt, ChevronDown } from "lucide-react";
+import toast from "react-hot-toast";
+
+import InputField from "@/app/common/components/InputField";
+import Button from "@/app/common/components/Button";
+import { safeFormatCurrency } from "@/app/common/lib/utils";
+import { purchaseLedgerService } from "../purchaseLedger.service";
+
+const BANK_OPTIONS = ["Kotak Mahindra Bank", "YesBank", "Credit Card", "Payment Gateway", "HDFC", "Cash", "Other"];
+
+export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSuccess, availableAdvance = 0 }) {
+  const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const initialFormState = {
+    date: new Date().toISOString().split("T")[0],
+    description: "",
+    invoiceNo: "",
+    logicalCircuitId: "",
+    productType: "",
+    credit: "",
+    debit: "",
+    bankName: "",
+    utrReference: "",
+    remarks: "",
+    isUsingAdvance: false,
+    allocations: [],
+  };
+
+  const [formData, setFormData] = useState(initialFormState);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setFormData({ ...initialFormState, date: formData.date });
+  };
+
+  const onChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  };
+
+  const allocations = formData.allocations || [];
+  const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amountApplied || 0), 0);
+  const paymentAmount = Number(formData.debit || 0);
+  const unallocatedAmount = Math.max(0, paymentAmount - totalAllocated);
+
+  const handleAllocationToggle = (bill, isChecked) => {
+    let currentAlloc = [...allocations];
+    const billId = bill._id || bill.id;
+
+    if (isChecked) {
+      const remainingPayment = Math.max(0, paymentAmount - totalAllocated);
+      const amountToApply = paymentAmount > 0 ? Math.min(bill.balanceDue, remainingPayment) : bill.balanceDue;
+      currentAlloc.push({ billId, amountApplied: amountToApply });
+    } else {
+      currentAlloc = currentAlloc.filter((a) => a.billId !== billId);
+    }
+    setFormData((prev) => ({ ...prev, allocations: currentAlloc }));
+  };
+
+  const handleAllocationAmountChange = (billId, newAmount) => {
+    const parsed = newAmount === "" ? "" : Number(newAmount);
+    const currentAlloc = allocations.map((a) =>
+      a.billId === billId ? { ...a, amountApplied: parsed } : a
+    );
+    setFormData((prev) => ({ ...prev, allocations: currentAlloc }));
+  };
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const toastId = toast.loading("Saving AP entry...");
+
+    try {
+      const sanitizedAllocations = (formData.allocations || [])
+        .filter((a) => Number(a.amountApplied) > 0)
+        .map((a) => ({ billId: a.billId, amountApplied: Number(a.amountApplied) }));
+
+      const payload = {
+        ...formData,
+        vendor: vendorId,
+        allocations: sanitizedAllocations,
+        bankInfo: {
+          bankName: formData.bankName,
+          utrReference: formData.utrReference,
+        },
+      };
+
+      await purchaseLedgerService.addDirectEntry(payload);
+      toast.success("Entry saved successfully!", { id: toastId });
+      setFormData(initialFormState);
+      if (onSuccess) onSuccess();
+    } catch (error) {
+      console.error(error);
+      const errorMsg = error?.response?.data?.message || "Failed to save entry.";
+      toast.error(errorMsg, { id: toastId });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isBillTab = activeTab === "credit";
+  const isPaymentTab = activeTab === "debit";
+  const showBankDetails = isPaymentTab && !formData.isUsingAdvance;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="p-4 border-b bg-purple-50/50 border-purple-100 flex justify-between items-center">
+        <h2 className="font-bold flex items-center gap-2 text-purple-900">
+          <Plus size={18} className="text-purple-600" /> New AP Transaction
+        </h2>
+      </div>
+
+      <form onSubmit={onSubmit} className="p-6">
+        {/* Toggle Switch */}
+        <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl mb-6">
+          <button
+            type="button"
+            onClick={() => handleTabChange("credit")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${isBillTab ? "bg-white text-orange-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
+              }`}
+          >
+            <ArrowDownRight size={16} /> Supplier Bill (Cr)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTabChange("debit")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${isPaymentTab ? "bg-white text-emerald-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
+              }`}
+          >
+            <ArrowUpRight size={16} /> Payment Out (Dr)
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5">
+          <div className="grid grid-cols-2 gap-5">
+            <InputField label="Date" type="date" name="date" required value={formData.date} onChange={onChange} />
+            {isBillTab && (
+              <InputField label="Supplier Invoice No." name="invoiceNo" required placeholder="INV-123" value={formData.invoiceNo} onChange={onChange} />
+            )}
+          </div>
+
+          {isBillTab && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <InputField
+                label="Logical Circuit ID (Optional)"
+                name="logicalCircuitId"
+                placeholder="e.g. LC-98765"
+                value={formData.logicalCircuitId}
+                onChange={onChange}
+              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1.5 uppercase tracking-wider">
+                  Product Type
+                </label>
+                <div className="relative">
+                  <select
+                    name="productType"
+                    value={formData.productType}
+                    onChange={onChange}
+                    className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
+                  >
+                    <option value="">Select Product Type...</option>
+                    <option value="NLD">NLD</option>
+                    <option value="Enterprise ILL">Enterprise ILL</option>
+                    <option value="Others">Others</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <InputField
+            label="Description"
+            name="description"
+            required
+            placeholder={isBillTab ? "e.g. Raw Material Purchase" : "e.g. Bank Transfer"}
+            value={formData.description}
+            onChange={onChange}
+          />
+
+          {isBillTab && (
+            <InputField
+              label="Bill Amount (Credit) ₹"
+              type="number"
+              name="credit"
+              placeholder="0.00"
+              required
+              value={formData.credit}
+              onChange={onChange}
+              className="font-bold text-orange-600 text-lg"
+            />
+          )}
+
+          {isPaymentTab && (
+            <>
+              <InputField
+                label="Payment Amount (Debit) ₹"
+                type="number"
+                name="debit"
+                placeholder="0.00"
+                required
+                value={formData.debit}
+                onChange={onChange}
+                className="font-bold text-emerald-600 text-lg"
+              />
+
+              {/* Advance Toggle */}
+              {availableAdvance > 0 && (
+                <label className="flex items-center gap-3 cursor-pointer p-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl transition-colors mt-2">
+                  <input
+                    type="checkbox"
+                    name="isUsingAdvance"
+                    checked={formData.isUsingAdvance}
+                    onChange={onChange}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-indigo-900 flex items-center gap-1.5">
+                      <Wallet size={14} /> Deduct from Vendor Advance
+                    </span>
+                    <span className="text-xs font-medium text-indigo-600">Available: {safeFormatCurrency(availableAdvance)}</span>
+                  </div>
+                </label>
+              )}
+
+              {/* Invoice Allocation List */}
+              {unpaidBills.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mt-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                      <Receipt size={16} className="text-purple-600" /> Clear Supplier Bills
+                    </h3>
+                    <div className="text-xs font-bold text-slate-500">
+                      Unallocated: <span className={unallocatedAmount > 0 ? "text-emerald-600" : ""}>{safeFormatCurrency(unallocatedAmount)}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto customScroller pr-2">
+                    {unpaidBills.map((bill) => {
+                      const billId = bill._id || bill.id;
+                      const allocatedObj = allocations.find((a) => a.billId === billId);
+                      const isSelected = !!allocatedObj;
+                      return (
+                        <div key={billId} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${isSelected ? "bg-white border-purple-300 shadow-sm" : "bg-transparent border-slate-200"}`}>
+                          <label className="flex items-center gap-3 cursor-pointer flex-1">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => handleAllocationToggle(bill, e.target.checked)}
+                              className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">
+                                Bill #{bill.invoiceNo || "N/A"} <span className="text-xs font-normal text-slate-500">({new Date(bill.date).toLocaleDateString()})</span>
+                              </p>
+                              <p className="text-xs font-medium text-orange-600">Owe: {safeFormatCurrency(bill.balanceDue)}</p>
+                            </div>
+                          </label>
+                          {isSelected && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-500">Pay: ₹</span>
+                              <input
+                                type="number"
+                                value={allocatedObj.amountApplied || ""}
+                                onChange={(e) => handleAllocationAmountChange(billId, e.target.value)}
+                                onWheel={(e) => e.target.blur()}
+                                className="w-24 px-2 py-1 text-sm font-bold text-right border border-purple-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                max={bill.balanceDue}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Bank Details */}
+              {showBankDetails && (
+                <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Landmark size={12} /> Bank / Mode
+                    </label>
+                    <div className="relative">
+                      <select
+                        name="bankName"
+                        value={formData.bankName}
+                        onChange={onChange}
+                        required={isPaymentTab}
+                        className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
+                      >
+                        <option value="" disabled>Select Bank</option>
+                        {BANK_OPTIONS.map((bank) => (
+                          <option key={bank} value={bank}>{bank}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                    </div>
+                  </div>
+                  <InputField icon={Hash} label="UTR / Ref" name="utrReference" placeholder="Transfer ID" value={formData.utrReference} onChange={onChange} required={isPaymentTab} />
+                </div>
+              )}
+            </>
+          )}
+
+          <InputField icon={FileText} label="Remarks (Internal)" name="remarks" placeholder="Optional notes..." value={formData.remarks} onChange={onChange} />
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <Button type="submit" isLoading={isSubmitting} variant="primary" icon={Save} className="!bg-purple-600 hover:!bg-purple-700 w-full sm:w-auto">
+            Save Record
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

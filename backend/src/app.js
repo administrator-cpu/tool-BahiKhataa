@@ -15,6 +15,8 @@ import customerRoutes from './modules/customer/customer.routes.js';
 import ledgerRoutes from './modules/ledger/ledger.routes.js';
 import integrationRoutes from './modules/integration/integration.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
+import vendorRouter from './modules/Vendor/vendor.routes.js';
+import purchaseLedgerRouter from './modules/PurchaseLedger/purcahseLedger.routes.js'
 
 const app = express();
 
@@ -77,6 +79,8 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/ledger', ledgerRoutes);
 app.use('/api/integration', integrationRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/vendors', vendorRouter);
+app.use('/api/purchase-ledger', purchaseLedgerRouter)
 
 app.get("/health", (req, res) => {
   const dbState = mongoose.connection.readyState === 1 ? "connected" : "disconnected";

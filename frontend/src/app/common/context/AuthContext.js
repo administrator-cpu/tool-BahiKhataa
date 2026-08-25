@@ -55,6 +55,7 @@ export function AuthProvider({ children }) {
     document.cookie = 'role=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax;';
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    localStorage.removeItem('userRole'); 
     await authService.logout()
     window.location.href = '/login';
   };
