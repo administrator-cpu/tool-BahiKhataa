@@ -30,6 +30,7 @@ import Button from "@/app/common/components/Button";
 // Hooks & Services
 import { useAuth } from "@/app/common/context/AuthContext";
 import { customerService } from "@/app/modules/customers/customer.service";
+import { ledgerService } from "@/app/modules/ledger/ledger.service";
 
 export default function CRMAuditPage() {
   const router = useRouter();
@@ -163,6 +164,41 @@ export default function CRMAuditPage() {
     toast.success("Report downloaded!");
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  // The Download Handler
+  const handleFinancialExport = async (selectedIds = []) => {
+    setIsExporting(true);
+    const toastId = toast.loading("Generating Financial Report...");
+
+    try {
+      const response = await ledgerService.exportFinancialReport(selectedIds);
+      
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Financial_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Financial report downloaded!", { id: toastId });
+    } catch (err) {
+      console.error("Export failed:", err);
+      toast.error("Failed to download the financial report.", { id: toastId });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // ==========================================
   // 🔒 SECURITY GATES
   // ==========================================
@@ -266,6 +302,17 @@ export default function CRMAuditPage() {
           >
             Rerun Audit
           </Button>
+      <Button 
+        variant="secondary" 
+        icon={isExporting ? Loader2 : Download} 
+        onClick={() => handleFinancialExport(/* pass selected customerIds here if needed */)}
+        isLoading={isExporting}
+        disabled={isExporting}
+        className="text-xs"
+      >
+        Export Financials
+      </Button>
+  
         </div>
       </div>
 
