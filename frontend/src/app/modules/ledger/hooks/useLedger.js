@@ -101,6 +101,40 @@ const handleEditClick = (row) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleExportReport = async (selectedCustomerIds = []) => {
+  try {
+    // 1. Call the service method
+    const response = await ledgerService.exportFinancialReport(selectedCustomerIds);
+    
+    // 2. Create a Blob from the response data
+    const blob = new Blob([response.data], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+    });
+    
+    // 3. Create a temporary URL for the Blob
+    const url = window.URL.createObjectURL(blob);
+    
+    // 4. Create an invisible anchor tag to trigger the download
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Determine filename (matches backend logic)
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `Financial_Report_${dateStr}.xlsx`);
+    
+    // 5. Append, click, and clean up
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    toast.success("Financial report downloaded successfully!");
+  } catch (error) {
+    console.error("Export Error:", error);
+    toast.error("Failed to download the financial report.");
+  }
+};
+
   const resetForms = () => {
     setEditingId(null);
     setAdminFormData({ 
@@ -123,6 +157,7 @@ const handleEditClick = (row) => {
     setSalesFormData,
     handleEditClick,
     resetForms,
-    refresh: fetchLedgerData
+    refresh: fetchLedgerData,
+    handleExportReport
   };
 }

@@ -54,5 +54,12 @@ export const ledgerService = {
   },
   downloadPDF: async (customerId) => {
     return await apiClient.get(`/customers/${customerId}/pdf`, { responseType: 'blob' });
+  },
+  exportFinancialReport: async (customerIds = []) => {
+    return await apiClient.post(
+      '/ledger/export/financial-report', 
+      { customerIds }, 
+      { responseType: 'blob' }
+    );
   }
 };
