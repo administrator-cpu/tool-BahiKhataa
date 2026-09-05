@@ -10,14 +10,14 @@ import {
   ChevronUp,
   Loader2,
   ListTree,
-  IndianRupee
+  Edit
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { safeFormatCurrency } from "@/app/common/lib/utils";
 import { purchaseLedgerService } from "../purchaseLedger.service";
 
-export default function PurchaseLedgerTable({ ledgerData = [], onRefresh }) {
+export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEditClick }) {
   const [expandedId, setExpandedId] = useState(null);
   const [expandedDetails, setExpandedDetails] = useState(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -123,16 +123,16 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh }) {
                   {!collapsedMonths[group.monthYear] && group.rows.map((row) => {
                     const rowId = row._id || row.id;
                     const isExpanded = expandedId === rowId;
-                    const canExpand = (row.allocations && row.allocations.length > 0) || (row.paymentsMade && row.paymentsMade.length > 0);
+                    const canExpand = row.credit > 0 || (row.allocations && row.allocations.length > 0) || (row.paymentsMade && row.paymentsMade.length > 0) || row.unallocatedAmount > 0;
 
                     return (
                       <React.Fragment key={rowId}>
                         <tr className="transition-colors hover:bg-slate-50/50 group">
-                            <td className="px-6 py-4">
-                              <p className="font-bold text-slate-900">
-                                {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                              </p>
-                            </td>
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-slate-900">
+                              {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                            </p>
+                          </td>
 
                           <td className="px-6 py-4">
                             <div className="flex items-start gap-3">
@@ -192,6 +192,9 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh }) {
                                   {isExpanded ? <ChevronUp size={16} /> : <ListTree size={16} />}
                                 </button>
                               )}
+                              <button onClick={() => onEditClick(row)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit Entry">
+                                <Edit size={16} />
+                              </button>
                               <button onClick={() => handleDelete(rowId)} disabled={isDeleting} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50">
                                 <Trash2 size={16} />
                               </button>
@@ -210,6 +213,35 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh }) {
                                   </div>
                                 ) : expandedDetails ? (
                                   <>
+                                    {/* NEW: TAX & BILLING BREAKDOWN */}
+                                    {expandedDetails.credit > 0 && (
+                                      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 border-b border-slate-100 pb-2">
+                                          Tax & Billing Breakdown
+                                        </h4>
+                                        <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+                                          <div>
+                                            <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-widest">Base Amount</span>
+                                            <span className="font-semibold text-slate-700">{safeFormatCurrency(expandedDetails.baseAmount)}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-widest">Total (Inc. GST)</span>
+                                            <span className="font-semibold text-slate-700">{safeFormatCurrency(expandedDetails.totalAmount)}</span>
+                                          </div>
+                                          {expandedDetails.tdsAmount > 0 && (
+                                            <div>
+                                              <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-widest">TDS ({expandedDetails.tdsPercentage}% {expandedDetails.tdsHead})</span>
+                                              <span className="font-semibold text-red-500">-{safeFormatCurrency(expandedDetails.tdsAmount)}</span>
+                                            </div>
+                                          )}
+                                          <div>
+                                            <span className="text-orange-400 block text-[10px] uppercase font-bold tracking-widest">Net Ledger Liability</span>
+                                            <span className="font-black text-orange-600">{safeFormatCurrency(expandedDetails.payableAmount || expandedDetails.credit)}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
                                     {/* AP SCENARIO A: Showing Payments made against a Supplier Bill */}
                                     {expandedDetails.paymentsMade && expandedDetails.paymentsMade.length > 0 && (
                                       <div className="bg-white border border-slate-200 rounded-xl p-4">

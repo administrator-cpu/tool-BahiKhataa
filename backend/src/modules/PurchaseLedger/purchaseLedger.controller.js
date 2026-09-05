@@ -1,5 +1,5 @@
 import PurchaseLedger from './purchaseLedger.model.js';
-import Vendor from '../vendor/vendor.model.js';
+import Vendor from '../Vendor/vendor.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 
@@ -61,11 +61,32 @@ const processPaymentAllocations = async (paymentLog) => {
 // ➕ CREATE AP ENTRY (BILL OR PAYMENT)
 // ==========================================
 export const addDirectEntry = catchAsync(async (req, res, next) => {
-  const { isUsingAdvance, billId, allocations, logicalCircuitId, productType, ...entryData } = req.body;
+  const {
+    isUsingAdvance, billId, allocations, logicalCircuitId, productType,
+    baseAmount, totalAmount, tdsHead, tdsPercentage, ...entryData
+  } = req.body;
 
-  const hasCredit = entryData.credit !== undefined && entryData.credit !== '' && Number(entryData.credit) > 0;
-  const incomingCredit = hasCredit ? toWhole(entryData.credit) : 0; // Bill Amount
-  const amount = entryData.debit ? toWhole(entryData.debit) : 0;    // Payment Amount
+  const hasCredit = (baseAmount !== undefined && baseAmount !== '') || (entryData.credit !== undefined && entryData.credit !== '');
+
+  let calculatedBase = 0;
+  let calculatedTotal = 0;
+  let calculatedTdsAmount = 0;
+  let calculatedPayable = 0;
+  let incomingCredit = 0;
+
+  if (hasCredit) {
+    calculatedBase = toWhole(baseAmount || entryData.credit);
+    calculatedTotal = (totalAmount !== undefined && totalAmount !== '') ? toWhole(totalAmount) : toWhole(calculatedBase * 1.18);
+
+    const tdsPct = tdsPercentage ? Number(tdsPercentage) : 0;
+
+    calculatedTdsAmount = toWhole(calculatedBase * (tdsPct / 100));
+    calculatedPayable = toWhole(calculatedTotal - calculatedTdsAmount);
+
+    incomingCredit = calculatedPayable;
+  }
+
+  const amount = entryData.debit ? toWhole(entryData.debit) : 0; // Payment Amount
 
   if (!entryData.vendor || !entryData.date) {
     return next(new AppError('Vendor and date are required.', 400));
@@ -102,7 +123,15 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
     entryData.debit = amount;
   }
 
-  if (hasCredit) entryData.credit = incomingCredit;
+  if (hasCredit) {
+    entryData.credit = incomingCredit;
+    entryData.baseAmount = calculatedBase;
+    entryData.totalAmount = calculatedTotal;
+    entryData.tdsHead = tdsHead || null;
+    entryData.tdsPercentage = tdsPercentage ? Number(tdsPercentage) : 0;
+    entryData.tdsAmount = calculatedTdsAmount;
+    entryData.payableAmount = calculatedPayable;
+  }
 
   let preparedAllocations = [];
   let totalAllocatedRequested = 0;
@@ -263,42 +292,56 @@ export const getVendorDashboard = catchAsync(async (req, res, next) => {
 // ==========================================
 export const editLedgerEntry = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { debit, credit, date, description, remarks, bankInfo, invoiceNo, allocations, isUsingAdvance, vendor, logicalCircuitId, productType } = req.body;
+  const {
+    debit, credit, date, description, remarks, bankInfo, invoiceNo,
+    allocations, isUsingAdvance, vendor, logicalCircuitId, productType,
+    baseAmount, totalAmount, tdsHead, tdsPercentage
+  } = req.body;
+
   const log = await PurchaseLedger.findById(id);
   if (!log) return next(new AppError('Log not found', 404));
 
   // 1. Capture Current State
   const existingCredit = log.credit || 0;
   const existingDebit = log.debit || 0;
+  const existingBaseAmount = log.baseAmount || 0;
 
+  const incomingBase = (baseAmount !== undefined && baseAmount !== '') ? toWhole(baseAmount) : existingBaseAmount;
   const incomingCredit = (credit !== undefined && credit !== '') ? toWhole(credit) : existingCredit;
   const incomingDebit = (debit !== undefined && debit !== '') ? toWhole(debit) : existingDebit;
 
   // 2. Detect what is being changed
+  const isChangingBaseAmount = incomingBase !== existingBaseAmount;
   const isChangingCredit = incomingCredit !== existingCredit;
   const isChangingDebit = incomingDebit !== existingDebit;
   const isChangingAllocations = allocations !== undefined && JSON.stringify(allocations) !== JSON.stringify(log.allocations || []);
   const isChangingAdvance = isUsingAdvance !== undefined && Boolean(isUsingAdvance) !== Boolean(log.isUsingAdvance);
   const isChangingVendor = vendor !== undefined && vendor !== log.vendor.toString();
 
-  // 3. AP FLIP: A Bill is an entry with credit > 0.
-  const isEditingUnpaidBill = isChangingCredit && (log.amountPaid === 0 || log.amountPaid === undefined) && existingDebit === 0;
+  const isChangingTax = (tdsPercentage !== undefined && Number(tdsPercentage) !== log.tdsPercentage) ||
+    (totalAmount !== undefined && toWhole(totalAmount) !== log.totalAmount) ||
+    (tdsHead !== undefined && tdsHead !== log.tdsHead);
+
+  // 3. AP FLIP: We only allow amount/tax changes if it's a Bill AND it has 0 payments attached.
+  const isEditingUnpaidBill = (isChangingCredit || isChangingBaseAmount || isChangingTax) &&
+    (log.amountPaid === 0 || log.amountPaid === undefined) &&
+    existingDebit === 0;
 
   const isAttemptingFinancialEdit =
     isChangingDebit ||
-    (!isEditingUnpaidBill && isChangingCredit) ||
+    (!isEditingUnpaidBill && (isChangingCredit || isChangingBaseAmount || isChangingTax)) ||
     isChangingAllocations ||
     isChangingAdvance ||
     isChangingVendor;
 
   // 4. Strict Block for Financial Alterations
   if (isAttemptingFinancialEdit) {
-    if (isChangingCredit && log.amountPaid > 0) {
-      return next(new AppError('You cannot change the amount of a supplier bill that already has payments applied to it. Please delete the attached payments first.', 400));
+    if ((isChangingCredit || isChangingBaseAmount || isChangingTax) && log.amountPaid > 0) {
+      return next(new AppError('You cannot change the amounts or taxes of a supplier bill that already has payments applied to it. Please delete the attached payments first.', 400));
     }
 
     return next(new AppError(
-      'Immutable Record: Approved financial transactions cannot be altered. To change payment amounts or allocations, please delete this entry to safely roll back all balances, then create a new corrected entry.',
+      'Immutable Record: Approved financial transactions cannot be altered. To change payment amounts or allocations, please delete this entry to safely roll back all balances.',
       400
     ));
   }
@@ -312,10 +355,24 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
   if (logicalCircuitId !== undefined) log.logicalCircuitId = logicalCircuitId;
   if (productType !== undefined) log.productType = productType;
 
-  // 6. Safe Bill Amount Update
+  // 6. Bill Amount Update & Tax Recalculation
   if (isEditingUnpaidBill) {
-    log.credit = incomingCredit;
-    log.balanceDue = incomingCredit;
+    const reqBase = incomingBase;
+    const reqTotal = (totalAmount !== undefined && totalAmount !== '') ? toWhole(totalAmount) : toWhole(reqBase * 1.18);
+    const reqTdsPct = tdsPercentage !== undefined ? Number(tdsPercentage) : log.tdsPercentage;
+    const reqTdsHead = tdsHead !== undefined ? tdsHead : log.tdsHead;
+
+    const calcTdsAmount = toWhole(reqBase * (reqTdsPct / 100));
+    const calcPayable = toWhole(reqTotal - calcTdsAmount);
+
+    log.baseAmount = reqBase;
+    log.totalAmount = reqTotal;
+    log.tdsPercentage = reqTdsPct;
+    log.tdsHead = reqTdsHead;
+    log.tdsAmount = calcTdsAmount;
+    log.payableAmount = calcPayable;
+    log.credit = calcPayable;
+    log.balanceDue = calcPayable;
   }
 
   await log.save();

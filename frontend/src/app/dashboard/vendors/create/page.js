@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, MapPin, FileText, Mail, Save } from "lucide-react";
+import { Building2, MapPin, FileText, Mail, Save, CreditCard } from "lucide-react";
 import toast from "react-hot-toast";
 
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -18,6 +18,7 @@ export default function CreateVendorPage() {
     companyName: "",
     address: "",
     gstNumber: "",
+    panNumber: "",
     email: "",
   });
 
@@ -105,16 +106,26 @@ export default function CreateVendorPage() {
               />
 
               <InputField
-                label="Email Address"
-                name="email"
-                type="email"
-                icon={Mail}
-                placeholder="accounts@vendor.com"
-                value={formData.email}
+                label="PAN Number"
+                name="panNumber"
+                icon={CreditCard}
+                placeholder="ABCDE1234F"
+                value={formData.panNumber}
                 onChange={handleChange}
-                className="lowercase"
+                className="uppercase font-mono"
               />
             </div>
+
+            <InputField
+              label="Email Address"
+              name="email"
+              type="email"
+              icon={Mail}
+              placeholder="accounts@vendor.com"
+              value={formData.email}
+              onChange={handleChange}
+              className="lowercase"
+            />
 
             {/* Actions */}
             <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end gap-3">

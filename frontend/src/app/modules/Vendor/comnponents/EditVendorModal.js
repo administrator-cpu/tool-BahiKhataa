@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Building2, MapPin, FileText, Mail, Save } from 'lucide-react';
+import { X, Building2, MapPin, FileText, Mail, Save, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import InputField from '@/app/common/components/InputField';
@@ -13,6 +13,7 @@ export default function EditVendorModal({ vendor, onClose, onSuccess }) {
     companyName: vendor?.companyName || "",
     address: vendor?.address || "",
     gstNumber: vendor?.gstNumber || "",
+    panNumber: vendor?.panNumber || "",
     email: vendor?.email || "",
   });
 
@@ -85,15 +86,24 @@ export default function EditVendorModal({ vendor, onClose, onSuccess }) {
             />
 
             <InputField
-              label="Email Address"
-              name="email"
-              type="email"
-              icon={Mail}
-              value={formData.email}
+              label="PAN Number"
+              name="panNumber"
+              icon={CreditCard}
+              value={formData.panNumber}
               onChange={handleChange}
-              className="lowercase"
+              className="uppercase font-mono"
             />
           </div>
+
+          <InputField
+            label="Email Address"
+            name="email"
+            type="email"
+            icon={Mail}
+            value={formData.email}
+            onChange={handleChange}
+            className="lowercase"
+          />
 
           <div className="pt-4 mt-6 border-t border-slate-100 flex items-center justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
