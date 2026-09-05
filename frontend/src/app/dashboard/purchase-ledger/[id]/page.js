@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText } from "lucide-react";
+import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard } from "lucide-react";
 import toast from "react-hot-toast";
 
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -21,6 +21,7 @@ export default function VendorPurchaseLedgerPage() {
   const [ledgerData, setLedgerData] = useState([]);
   const [totals, setTotals] = useState({ outstanding: 0, availableAdvance: 0 });
   const [aging, setAging] = useState(null);
+  const [editingLog, setEditingLog] = useState(null);
 
   const [vendorProfile, setVendorProfile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -84,6 +85,9 @@ export default function VendorPurchaseLedgerPage() {
               {vendorProfile?.gstNumber && (
                 <span className="flex items-center gap-1.5"><FileText size={14} className="text-slate-400" /> GST: <span className="uppercase">{vendorProfile.gstNumber}</span></span>
               )}
+              {vendorProfile?.panNumber && (
+                <span className="flex items-center gap-1.5"><CreditCard size={14} className="text-slate-400" /> PAN: <span className="uppercase font-mono">{vendorProfile.panNumber}</span></span>
+              )}
               {vendorProfile?.address && (
                 <span className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400" /> {vendorProfile.address}</span>
               )}
@@ -140,12 +144,18 @@ export default function VendorPurchaseLedgerPage() {
           unpaidBills={unpaidBills}
           onSuccess={fetchLedger}
           availableAdvance={totals.availableAdvance}
+          editingLog={editingLog}
+          onCancelEdit={() => setEditingLog(null)}
         />
 
         {/* Full Width Transaction History */}
         <PurchaseLedgerTable
           ledgerData={ledgerData}
           onRefresh={fetchLedger}
+          onEditClick={(log) => {
+            setEditingLog(log);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
         />
 
       </div>

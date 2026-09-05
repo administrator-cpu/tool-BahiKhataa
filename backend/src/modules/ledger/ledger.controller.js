@@ -735,12 +735,15 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
 
     let marchDebits = 0;
     let marchCredits = 0;
+    const fyLogs = [];
 
     logs.forEach(log => {
       const logDate = new Date(log.date);
       if (logDate < fyStartDate) {
         marchDebits += toWhole(log.debit);
-        marchCredits += toWhole(log.credit) + toWhole(log.advanceAmount);
+        marchCredits += toWhole(log.credit);
+      } else {
+        fyLogs.push(log);
       }
     });
 
@@ -763,7 +766,7 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
       let monthAdjustments = 0;
       let monthCNs = 0;
 
-      const monthLogs = logs.filter(log => {
+      const monthLogs = fyLogs.filter(log => {
         const d = new Date(log.date);
         return d.getMonth() === month && d.getFullYear() === year;
       });
@@ -776,7 +779,8 @@ export const exportFinancialReport = catchAsync(async (req, res, next) => {
           monthInvoices += toWhole(log.debit);
         }
 
-        const totalCreditVal = toWhole(log.credit) + toWhole(log.advanceAmount);
+        const totalCreditVal = toWhole(log.credit);
+
         if (totalCreditVal > 0) {
           if (textLower.includes('adjustment') || textLower.includes('adj')) {
             monthAdjustments += totalCreditVal;

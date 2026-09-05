@@ -8,7 +8,7 @@ import catchAsync from '../../utils/catchAsync.js';
  * @route POST /api/v1/vendor
  */
 export const createVendor = catchAsync(async (req, res, next) => {
-  const { companyName, address, gstNumber, email } = req.body;
+  const { companyName, address, gstNumber, email, panNumber } = req.body;
 
   const existingVendor = await Vendor.findOne({ companyName: companyName.toUpperCase() });
   if (existingVendor) {
@@ -19,7 +19,8 @@ export const createVendor = catchAsync(async (req, res, next) => {
     companyName,
     address,
     gstNumber,
-    email: email || null
+    email: email || null,
+    panNumber: panNumber ? panNumber.toUpperCase() : null
   });
 
   res.status(201).json({
@@ -43,10 +44,13 @@ export const editVendor = catchAsync(async (req, res, next) => {
     return newObj;
   };
 
-  const filteredBody = filterObj(req.body, 'companyName', 'address', 'gstNumber', 'email', 'isActive');
+  const filteredBody = filterObj(req.body, 'companyName', 'address', 'gstNumber', 'email', 'isActive', 'panNumber');
 
   if (filteredBody.companyName) {
     filteredBody.companyName = filteredBody.companyName.toUpperCase();
+  }
+  if (filteredBody.panNumber) {
+    filteredBody.panNumber = filteredBody.panNumber.toUpperCase();
   }
 
   const updatedVendor = await Vendor.findByIdAndUpdate(vendorId, filteredBody, {

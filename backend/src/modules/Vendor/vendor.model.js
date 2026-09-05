@@ -19,6 +19,12 @@ const vendorSchema = new mongoose.Schema({
     uppercase: true,
     trim: true,
   },
+  panNumber: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    match: [/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/, 'Please provide a valid PAN number format (e.g., ABCDE1234F)']
+  },
   email: {
     type: String,
     trim: true,

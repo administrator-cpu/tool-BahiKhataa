@@ -9,7 +9,7 @@ import { purchaseLedgerService } from "../purchaseLedger.service";
 
 const BANK_OPTIONS = ["Kotak Mahindra Bank", "YesBank", "Credit Card", "Payment Gateway", "HDFC", "Cash", "Other"];
 
-export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSuccess, availableAdvance = 0 }) {
+export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSuccess, availableAdvance = 0, editingLog, onCancelEdit }) {
   const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -19,7 +19,10 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
     invoiceNo: "",
     logicalCircuitId: "",
     productType: "",
-    credit: "",
+    baseAmount: "",
+    totalAmount: "",
+    tdsHead: "",
+    tdsPercentage: "",
     debit: "",
     bankName: "",
     utrReference: "",
@@ -37,12 +40,53 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
 
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+
+    setFormData((prev) => {
+      const nextState = {
+        ...prev,
+        [name]: type === "checkbox" ? checked : value,
+      };
+
+      if (name === "baseAmount") {
+        const newBase = Number(value) || 0;
+        nextState.totalAmount = newBase > 0 ? (newBase * 1.18).toFixed(2) : "";
+      }
+
+      return nextState;
+    });
   };
 
+  useEffect(() => {
+    if (editingLog) {
+      const isBill = editingLog.credit > 0;
+      setActiveTab(isBill ? "credit" : "debit");
+      setFormData({
+        date: editingLog.date ? new Date(editingLog.date).toISOString().split("T")[0] : "",
+        description: editingLog.description || "",
+        invoiceNo: editingLog.invoiceNo || "",
+        logicalCircuitId: editingLog.logicalCircuitId || "",
+        productType: editingLog.productType || "",
+        baseAmount: editingLog.baseAmount || editingLog.credit || "",
+        totalAmount: editingLog.totalAmount || "",
+        tdsHead: editingLog.tdsHead || "",
+        tdsPercentage: editingLog.tdsPercentage || "",
+        debit: editingLog.debit || "",
+        bankName: editingLog.bankInfo?.bankName || "",
+        utrReference: editingLog.bankInfo?.utrReference || "",
+        remarks: editingLog.remarks || "",
+        isUsingAdvance: editingLog.isUsingAdvance || false,
+        allocations: editingLog.allocations || [],
+      });
+    } else {
+      setFormData(initialFormState);
+    }
+  }, [editingLog]);
+
+  const previewBase = Number(formData.baseAmount) || 0;
+  const previewTotal = formData.totalAmount ? Number(formData.totalAmount) : (previewBase * 1.18);
+  const previewTdsPct = Number(formData.tdsPercentage) || 0;
+  const previewTdsAmount = previewBase * (previewTdsPct / 100);
+  const previewPayable = previewTotal - previewTdsAmount;
   const allocations = formData.allocations || [];
   const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amountApplied || 0), 0);
   const paymentAmount = Number(formData.debit || 0);
@@ -89,9 +133,16 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         },
       };
 
-      await purchaseLedgerService.addDirectEntry(payload);
-      toast.success("Entry saved successfully!", { id: toastId });
-      setFormData(initialFormState);
+      if (editingLog) {
+        await purchaseLedgerService.editLedgerEntry(editingLog._id || editingLog.id, payload);
+        toast.success("Entry updated successfully!", { id: toastId });
+        if (onCancelEdit) onCancelEdit();
+      } else {
+        await purchaseLedgerService.addDirectEntry(payload);
+        toast.success("Entry saved successfully!", { id: toastId });
+        setFormData(initialFormState);
+      }
+
       if (onSuccess) onSuccess();
     } catch (error) {
       console.error(error);
@@ -119,6 +170,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl mb-6">
           <button
             type="button"
+            disabled={!!editingLog}
             onClick={() => handleTabChange("credit")}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${isBillTab ? "bg-white text-orange-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
               }`}
@@ -184,16 +236,83 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
           />
 
           {isBillTab && (
-            <InputField
-              label="Bill Amount (Credit) ₹"
-              type="number"
-              name="credit"
-              placeholder="0.00"
-              required
-              value={formData.credit}
-              onChange={onChange}
-              className="font-bold text-orange-600 text-lg"
-            />
+            <div className="p-4 bg-orange-50/50 border border-orange-100 rounded-2xl space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <InputField
+                  label="Base Amount (₹)"
+                  type="number"
+                  name="baseAmount"
+                  placeholder="0.00"
+                  required
+                  value={formData.baseAmount}
+                  onChange={onChange}
+                  className="font-bold text-slate-900 text-lg"
+                />
+                <InputField
+                  label="Total Amount (Base + GST) (₹)"
+                  type="number"
+                  name="totalAmount"
+                  placeholder={`${safeFormatCurrency(previewBase * 1.18)}`}
+                  value={formData.totalAmount}
+                  onChange={onChange}
+                  className="font-bold text-slate-900 text-lg"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 ml-1 uppercase tracking-wider">
+                    TDS Head
+                  </label>
+                  <div className="relative">
+                    <select
+                      name="tdsHead"
+                      value={formData.tdsHead}
+                      onChange={onChange}
+                      className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-orange-500 appearance-none cursor-pointer"
+                    >
+                      <option value="">Select TDS Head</option>
+                      <option value="194J">194J</option>
+                      <option value="194I">194I</option>
+                      <option value="194C">194C</option>
+                      <option value="194H">194H</option>
+                      <option value="Others">Others</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  </div>
+                </div>
+
+                <InputField
+                  label="TDS Percentage (%)"
+                  type="number"
+                  name="tdsPercentage"
+                  placeholder="e.g. 2, 10"
+                  value={formData.tdsPercentage}
+                  onChange={onChange}
+                  max="100"
+                />
+              </div>
+
+              {/* Live Calculation Summary */}
+              {previewBase > 0 && (
+                <div className="mt-4 p-3 bg-white border border-orange-200 rounded-xl flex flex-wrap items-center justify-between gap-4 text-sm">
+                  <div className="flex gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Total (Inc. GST)</p>
+                      <p className="font-semibold text-slate-700">{safeFormatCurrency(previewTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">TDS Ded. (-)</p>
+                      <p className="font-semibold text-red-500">{safeFormatCurrency(previewTdsAmount)}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase font-black tracking-wider text-orange-400">Final Ledger Liability (Cr)</p>
+                    <p className="text-xl font-black text-orange-600">{safeFormatCurrency(previewPayable)}</p>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {isPaymentTab && (
@@ -312,9 +431,14 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
           <InputField icon={FileText} label="Remarks (Internal)" name="remarks" placeholder="Optional notes..." value={formData.remarks} onChange={onChange} />
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-3">
+          {editingLog && (
+            <Button type="button" variant="secondary" onClick={onCancelEdit}>
+              Cancel Edit
+            </Button>
+          )}
           <Button type="submit" isLoading={isSubmitting} variant="primary" icon={Save} className="!bg-purple-600 hover:!bg-purple-700 w-full sm:w-auto">
-            Save Record
+            {editingLog ? "Update Record" : "Save Record"}
           </Button>
         </div>
       </form>
