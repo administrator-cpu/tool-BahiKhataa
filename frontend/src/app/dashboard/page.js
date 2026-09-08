@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase } from "lucide-react";
+import { Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase, FileSpreadsheet } from "lucide-react";
+import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 
 // Hooks & Context
 import { useAuth } from "../common/context/AuthContext";
 import { useCustomers } from "../modules/customers/hooks/useCustomers";
 import { vendorService } from "../modules/Vendor/vendor.service";
+import { purchaseLedgerService } from "../modules/purchaseLedger/purchaseLedger.service"
 
 // Components
 import Button from "../common/components/Button";
@@ -67,6 +69,24 @@ export default function UnifiedDashboard() {
     );
   }
 
+  const handleDownloadTDS = async () => {
+    const toastId = toast.loading("Generating TDS Report...");
+    try {
+      const response = await purchaseLedgerService.exportTdsReport();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Vendor_TDS_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("Report downloaded successfully!", { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to download TDS Report.", { id: toastId });
+    }
+  };
+
   return (
     <DashboardLayout
       hideBack={true}
@@ -125,9 +145,14 @@ export default function UnifiedDashboard() {
                   Onboard Customer
                 </Button>
               ) : (
-                <Button variant="primary" icon={Plus} className="!bg-purple-600 hover:!bg-purple-700" onClick={() => router.push(`/dashboard/vendors/create`)}>
-                  Add Vendor
-                </Button>
+                <>
+                  <Button variant="secondary" icon={FileSpreadsheet} className="!text-emerald-700 !bg-emerald-50 hover:!bg-emerald-100 !border-emerald-200" onClick={handleDownloadTDS}>
+                    TDS Report
+                  </Button>
+                  <Button variant="primary" icon={Plus} className="!bg-purple-600 hover:!bg-purple-700" onClick={() => router.push(`/dashboard/vendors/create`)}>
+                    Add Vendor
+                  </Button>
+                </>
               )}
 
               <Button variant="secondary" icon={Users} onClick={() => router.push(`/dashboard/agents/create`)}>
