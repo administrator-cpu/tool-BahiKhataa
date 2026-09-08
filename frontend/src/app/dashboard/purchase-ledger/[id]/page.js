@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
-import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard, UploadCloud } from "lucide-react";
 import toast from "react-hot-toast";
 
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -16,6 +16,7 @@ import EditVendorModal from "@/app/modules/Vendor/comnponents/EditVendorModal";
 export default function VendorPurchaseLedgerPage() {
   const params = useParams();
   const vendorId = params.id;
+  const router = useRouter();
 
   const [isLoading, setIsLoading] = useState(true);
   const [ledgerData, setLedgerData] = useState([]);
@@ -93,12 +94,20 @@ export default function VendorPurchaseLedgerPage() {
               )}
             </div>
           </div>
-          <button
-            onClick={() => setIsEditModalOpen(true)}
-            className="shrink-0 flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:text-purple-700 hover:border-purple-200 hover:bg-purple-50 rounded-xl font-bold text-sm transition-colors shadow-sm"
-          >
-            <Edit size={16} /> Edit Vendor
-          </button>
+          <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              onClick={() => router.push(`/dashboard/vendors/${vendorId}/bulk-upload`)}
+              className="flex justify-center items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold text-sm transition-colors shadow-sm"
+            >
+              <UploadCloud size={16} /> Bulk Upload
+            </button>
+            <button
+              onClick={() => setIsEditModalOpen(true)}
+              className="flex justify-center items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:text-purple-700 hover:border-purple-200 hover:bg-purple-50 rounded-xl font-bold text-sm transition-colors shadow-sm"
+            >
+              <Edit size={16} /> Edit Vendor
+            </button>
+          </div>
         </div>
 
         {/* Bottom Half: Financial Summaries */}

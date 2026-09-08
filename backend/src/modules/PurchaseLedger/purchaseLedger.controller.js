@@ -1,3 +1,4 @@
+import excelJS from 'exceljs';
 import PurchaseLedger from './purchaseLedger.model.js';
 import Vendor from '../Vendor/vendor.model.js';
 import AppError from '../../utils/AppError.js';
@@ -77,12 +78,9 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   if (hasCredit) {
     calculatedBase = toWhole(baseAmount || entryData.credit);
     calculatedTotal = (totalAmount !== undefined && totalAmount !== '') ? toWhole(totalAmount) : toWhole(calculatedBase * 1.18);
-
     const tdsPct = tdsPercentage ? Number(tdsPercentage) : 0;
-
     calculatedTdsAmount = toWhole(calculatedBase * (tdsPct / 100));
     calculatedPayable = toWhole(calculatedTotal - calculatedTdsAmount);
-
     incomingCredit = calculatedPayable;
   }
 
@@ -100,6 +98,16 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
     if (!entryData.invoiceNo || (!entryData.description && !entryData.desc)) {
       return next(new AppError('Supplier Bill number (invoiceNo) and description are required for credit entries.', 400));
     }
+
+    const existingBill = await PurchaseLedger.findOne({
+      vendor: entryData.vendor,
+      invoiceNo: entryData.invoiceNo.trim()
+    }).collation({ locale: 'en', strength: 2 });
+
+    if (existingBill) {
+      return next(new AppError(`Duplicate Alert: A bill with Invoice Number "${entryData.invoiceNo}" already exists for this vendor.`, 409));
+    }
+
   } else if (amount > 0) {
     if (!isUsingAdvance && (!entryData.bankInfo || !entryData.bankInfo.bankName)) {
       return next(new AppError('Bank name is required for payments out (Debit entries).', 400));
@@ -322,6 +330,18 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
     (totalAmount !== undefined && toWhole(totalAmount) !== log.totalAmount) ||
     (tdsHead !== undefined && tdsHead !== log.tdsHead);
 
+  if (invoiceNo !== undefined && invoiceNo.trim() !== log.invoiceNo) {
+    const existingBill = await PurchaseLedger.findOne({
+      vendor: log.vendor,
+      invoiceNo: invoiceNo.trim(),
+      _id: { $ne: log._id }
+    }).collation({ locale: 'en', strength: 2 });
+
+    if (existingBill) {
+      return next(new AppError(`Duplicate Alert: A bill with Invoice Number "${invoiceNo}" already exists for this vendor.`, 409));
+    }
+  }
+
   // 3. AP FLIP: We only allow amount/tax changes if it's a Bill AND it has 0 payments attached.
   const isEditingUnpaidBill = (isChangingCredit || isChangingBaseAmount || isChangingTax) &&
     (log.amountPaid === 0 || log.amountPaid === undefined) &&
@@ -351,7 +371,7 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
   if (description) log.description = description;
   if (remarks) log.remarks = remarks;
   if (bankInfo) log.bankInfo = { ...log.bankInfo, ...bankInfo };
-  if (invoiceNo !== undefined) log.invoiceNo = invoiceNo;
+  if (invoiceNo !== undefined) log.invoiceNo = invoiceNo.trim();
   if (logicalCircuitId !== undefined) log.logicalCircuitId = logicalCircuitId;
   if (productType !== undefined) log.productType = productType;
 
