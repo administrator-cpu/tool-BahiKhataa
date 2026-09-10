@@ -37,12 +37,10 @@ const purchaseLedgerSchema = new mongoose.Schema({
   credit: {
     type: Number,
     default: 0,
-    min: [0, 'Credit (Bill Amount) cannot be a negative value']
   },
   debit: {
     type: Number,
     default: 0,
-    min: [0, 'Debit (Payment Amount) cannot be a negative value']
   },
   advanceAmount: {
     type: Number,
@@ -119,7 +117,7 @@ purchaseLedgerSchema.statics.getAgingReport = async function (vendorId) {
   const unpaidBills = await this.find({
     vendor: vendorId,
     status: 'approved',
-    credit: { $gt: 0 },
+    credit: { $ne: 0 },
     paymentStatus: { $ne: 'Paid' }
   });
 
@@ -135,12 +133,12 @@ purchaseLedgerSchema.statics.getAgingReport = async function (vendorId) {
 
   unpaidBills.forEach(bill => {
     const due = bill.balanceDue;
-    if (due > 0) {
+    if (due !== 0) {
       buckets.total += due;
       const diffTime = Math.abs(now - new Date(bill.date));
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-      if (diffDays <= 30) buckets.current += due;
+      if (due < 0 || diffDays <= 30) buckets.current += due;
       else if (diffDays <= 60) buckets.thirtyPlus += due;
       else if (diffDays <= 90) buckets.sixtyPlus += due;
       else buckets.ninetyPlus += due;

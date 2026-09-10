@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Save, FileText, Landmark, Hash, Wallet, ArrowUpRight, ArrowDownRight, Receipt, ChevronDown } from "lucide-react";
+import { Plus, Save, FileText, Landmark, Hash, Wallet, AlertTriangle, ArrowUpRight, ArrowDownRight, Receipt, ChevronDown } from "lucide-react";
 import toast from "react-hot-toast";
 
 import InputField from "@/app/common/components/InputField";
@@ -12,6 +12,7 @@ const BANK_OPTIONS = ["Kotak Mahindra Bank", "YesBank", "Credit Card", "Payment 
 export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSuccess, availableAdvance = 0, editingLog, onCancelEdit }) {
   const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false);
 
   const initialFormState = {
     date: new Date().toISOString().split("T")[0],
@@ -49,7 +50,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
 
       if (name === "baseAmount") {
         const newBase = Number(value) || 0;
-        nextState.totalAmount = newBase > 0 ? (newBase * 1.18).toFixed(2) : "";
+        nextState.totalAmount = newBase !== 0 ? (newBase * 1.18).toFixed(2) : "";
       }
 
       return nextState;
@@ -113,8 +114,8 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
     );
     setFormData((prev) => ({ ...prev, allocations: currentAlloc }));
   };
-  const onSubmit = async (e) => {
-    e.preventDefault();
+
+  const executeSubmit = async () => {
     setIsSubmitting(true);
     const toastId = toast.loading("Saving AP entry...");
 
@@ -150,7 +151,17 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
       toast.error(errorMsg, { id: toastId });
     } finally {
       setIsSubmitting(false);
+      setShowAdvanceModal(false);
     }
+  };
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (activeTab === "debit" && unallocatedAmount > 0) {
+      setShowAdvanceModal(true);
+      return;
+    }
+    executeSubmit();
   };
 
   const isBillTab = activeTab === "credit";
@@ -294,7 +305,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
               </div>
 
               {/* Live Calculation Summary */}
-              {previewBase > 0 && (
+              {previewBase !== 0 && (
                 <div className="mt-4 p-3 bg-white border border-orange-200 rounded-xl flex flex-wrap items-center justify-between gap-4 text-sm">
                   <div className="flex gap-4">
                     <div>
@@ -302,13 +313,19 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
                       <p className="font-semibold text-slate-700">{safeFormatCurrency(previewTotal)}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase font-bold text-slate-400">TDS Ded. (-)</p>
-                      <p className="font-semibold text-red-500">{safeFormatCurrency(previewTdsAmount)}</p>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">
+                        {previewBase < 0 ? "TDS Reversed (+)" : "TDS Ded. (-)"}
+                      </p>
+                      <p className={`font-semibold ${previewBase < 0 ? "text-emerald-500" : "text-red-500"}`}>
+                        {safeFormatCurrency(Math.abs(previewTdsAmount))}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] uppercase font-black tracking-wider text-orange-400">Final Ledger Liability (Cr)</p>
-                    <p className="text-xl font-black text-orange-600">{safeFormatCurrency(previewPayable)}</p>
+                    <p className={`text-xl font-black ${previewPayable < 0 ? "text-emerald-600" : "text-orange-600"}`}>
+                      {safeFormatCurrency(previewPayable)}
+                    </p>
                   </div>
                 </div>
               )}
@@ -442,6 +459,47 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
           </Button>
         </div>
       </form>
+
+      {/* 🚨 UNALLOCATED ADVANCE WARNING MODAL */}
+      {showAdvanceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">Unallocated Funds Detected</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                You made a payment of <strong>{safeFormatCurrency(paymentAmount)}</strong>, but only allocated <strong>{safeFormatCurrency(totalAllocated)}</strong> to specific bills.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6">
+                <p className="text-amber-800 text-sm font-bold">
+                  The remaining <span className="text-lg">{safeFormatCurrency(unallocatedAmount)}</span> will be sent to the vendor's Advance Wallet.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => setShowAdvanceModal(false)}
+                >
+                  Go Back & Adjust
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full !bg-amber-500 hover:!bg-amber-600"
+                  onClick={executeSubmit}
+                  isLoading={isSubmitting}
+                >
+                  Yes, Save to Advance
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
