@@ -19,17 +19,13 @@ const purchaseLedgerSchema = new mongoose.Schema({
   },
   productType: {
     type: String,
-    enum: ['NLD', 'Enterprise ILL', 'Others'],
+    trim: true,
     default: null
   },
 
   baseAmount: { type: Number, default: 0 },
   totalAmount: { type: Number, default: 0 },
-  tdsHead: {
-    type: String,
-    enum: ['194J', '194I', '194C', '194H', 'Others', null],
-    default: null
-  },
+  tdsHead: { type: String, trim: true, default: null },
   tdsPercentage: { type: Number, default: 0 },
   tdsAmount: { type: Number, default: 0 },
   payableAmount: { type: Number, default: 0 },

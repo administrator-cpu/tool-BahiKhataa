@@ -1,8 +1,8 @@
 import express from 'express';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 import {
-  addDirectEntry, deleteLedgerEntry, editLedgerEntry,
-  getVendorDashboard, getPurchaseLedgerEntryDetails,
+  addDirectEntry, deleteLedgerEntry, editLedgerEntry, getVendorDashboard,
+  getPurchaseLedgerEntryDetails, downloadVendorLedgerExcel, downloadVendorLedgerPDF
 } from './purchaseLedger.controller.js';
 import { exportTdsReport, downloadBulkTemplate, validateBulkUpload, commitBulkUpload } from "./purchaseLedgerExcel.controller.js";
 
@@ -28,6 +28,12 @@ router.post('/bulk/commit', commitBulkUpload);
 
 // 📊 Get Specific Vendor's AP Dashboard & Transactions
 router.get('/vendor/:vendorId/dashboard', getVendorDashboard);
+
+// 📊 Download Vendor's AP Ledger Excel
+router.get('/vendor/:vendorId/export/excel', downloadVendorLedgerExcel);
+
+// 📄 Download Vendor's AP Ledger PDF
+router.get('/vendor/:vendorId/export/pdf', downloadVendorLedgerPDF);
 
 // GET /api/purchase-ledger/:id/details
 router.get('/:id/details', getPurchaseLedgerEntryDetails);
