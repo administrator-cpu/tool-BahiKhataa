@@ -62,8 +62,8 @@ app.use(helmet({
 app.use(cors(corsOptions));
 
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "20kb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 app.use('/api', limiter); 
 
