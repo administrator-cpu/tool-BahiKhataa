@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard, UploadCloud } from "lucide-react";
+import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard, UploadCloud, Download, FileSpreadsheet } from "lucide-react"
 import toast from "react-hot-toast";
 
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -23,9 +23,9 @@ export default function VendorPurchaseLedgerPage() {
   const [totals, setTotals] = useState({ outstanding: 0, availableAdvance: 0 });
   const [aging, setAging] = useState(null);
   const [editingLog, setEditingLog] = useState(null);
-
   const [vendorProfile, setVendorProfile] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const fetchLedger = useCallback(async () => {
     try {
@@ -62,6 +62,42 @@ export default function VendorPurchaseLedgerPage() {
     );
   }
 
+  const handleDownloadPDF = async () => {
+    const toastId = toast.loading("Generating PDF Ledger...");
+    setShowExportMenu(false);
+    try {
+      const response = await purchaseLedgerService.downloadVendorLedgerPDF(vendorId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${vendorProfile?.companyName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Vendor'}_Ledger.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("PDF downloaded successfully!", { id: toastId });
+    } catch (error) {
+      toast.error("Failed to download PDF.", { id: toastId });
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    const toastId = toast.loading("Generating Excel Ledger...");
+    setShowExportMenu(false);
+    try {
+      const response = await purchaseLedgerService.downloadVendorLedgerExcel(vendorId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${vendorProfile?.companyName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Vendor'}_Ledger.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("Excel downloaded successfully!", { id: toastId });
+    } catch (error) {
+      toast.error("Failed to download Excel.", { id: toastId });
+    }
+  };
+
   return (
     <DashboardLayout
       breadcrumbs={
@@ -95,6 +131,36 @@ export default function VendorPurchaseLedgerPage() {
             </div>
           </div>
           <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="w-full flex justify-center items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl font-bold text-sm transition-colors shadow-sm"
+              >
+                <Download size={16} /> Export
+              </button>
+
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+
+                  <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-200 shadow-xl rounded-xl overflow-hidden z-20 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      onClick={handleDownloadPDF}
+                      className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors border-b border-slate-100"
+                    >
+                      <FileText size={16} /> Download PDF
+                    </button>
+                    <button
+                      onClick={handleDownloadExcel}
+                      className="flex items-center gap-2 px-4 py-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 transition-colors"
+                    >
+                      <FileSpreadsheet size={16} /> Download Excel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={() => router.push(`/dashboard/vendors/${vendorId}/bulk-upload`)}
               className="flex justify-center items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold text-sm transition-colors shadow-sm"

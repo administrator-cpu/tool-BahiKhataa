@@ -1,4 +1,5 @@
 import excelJS from 'exceljs';
+import PDFDocument from 'pdfkit-table';
 import PurchaseLedger from './purchaseLedger.model.js';
 import Vendor from '../Vendor/vendor.model.js';
 import AppError from '../../utils/AppError.js';
@@ -424,4 +425,249 @@ export const getPurchaseLedgerEntryDetails = catchAsync(async (req, res, next) =
     status: 'success',
     data: { log }
   });
+});
+
+// ==========================================
+// 📊 EXPORT VENDOR LEDGER (EXCEL)
+// ==========================================
+export const downloadVendorLedgerExcel = catchAsync(async (req, res, next) => {
+  const { vendorId } = req.params;
+
+  const vendor = await Vendor.findById(vendorId);
+  if (!vendor) return next(new AppError('Vendor not found', 404));
+
+  const ledgers = await PurchaseLedger.find({
+    vendor: vendorId,
+    status: 'approved',
+    isUsingAdvance: { $ne: true }
+  }).sort({ date: 1 });
+
+  const workbook = new excelJS.Workbook();
+  workbook.creator = 'BahiKhata App';
+  const worksheet = workbook.addWorksheet('Vendor Ledger');
+
+  worksheet.columns = [
+    { header: 'Date', key: 'date', width: 15 },
+    { header: 'Particulars', key: 'description', width: 45 },
+    { header: 'Invoice No', key: 'invoiceNo', width: 15 },
+    { header: 'Debit (Payment) ₹', key: 'debit', width: 18 },
+    { header: 'Credit (Bill) ₹', key: 'credit', width: 18 }
+  ];
+
+  worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  worksheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF1F2937' }
+  };
+  worksheet.getRow(1).alignment = { horizontal: 'center' };
+
+  ledgers.forEach((log) => {
+    let desc = log.description || '-';
+    if (log.debit > 0 && log.bankInfo?.bankName) {
+      desc = `Paid via ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(Ref: ' + log.bankInfo.utrReference + ')' : ''}`;
+    }
+
+    const row = worksheet.addRow({
+      date: new Date(log.date).toLocaleDateString('en-IN'),
+      description: desc,
+      invoiceNo: log.invoiceNo || '-',
+      debit: log.debit > 0 ? log.debit : '',
+      credit: log.credit > 0 ? log.credit : ''
+    });
+
+    row.getCell('debit').alignment = { horizontal: 'right' };
+    row.getCell('credit').alignment = { horizontal: 'right' };
+  });
+
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+
+  const safeCompanyName = vendor.companyName.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `Vendor_Ledger_${safeCompanyName}.xlsx`;
+
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=${fileName}`
+  );
+
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+// ==========================================
+// 📄 EXPORT VENDOR LEDGER (PDF)
+// ==========================================
+export const downloadVendorLedgerPDF = catchAsync(async (req, res, next) => {
+  const { vendorId } = req.params;
+  const { fromDate, toDate } = req.query;
+
+  const vendor = await Vendor.findById(vendorId);
+  if (!vendor) return next(new AppError('Vendor not found', 404));
+
+  let query = {
+    vendor: vendorId,
+    status: 'approved',
+    isUsingAdvance: { $ne: true }
+  };
+  let openingBalance = 0;
+
+  if (fromDate) {
+    query.date = { $gte: new Date(fromDate) };
+
+    const prevLogs = await PurchaseLedger.find({
+      vendor: vendorId,
+      status: 'approved',
+      isUsingAdvance: { $ne: true },
+      date: { $lt: new Date(fromDate) }
+    });
+
+    let prevDebit = 0;
+    let prevCredit = 0;
+    prevLogs.forEach(log => {
+      prevDebit += (log.debit || 0);
+      prevCredit += (log.credit || 0);
+    });
+
+    openingBalance = prevCredit - prevDebit;
+  }
+
+  if (toDate) {
+    query.date = query.date || {};
+    query.date.$lte = new Date(toDate);
+  }
+
+  const ledgers = await PurchaseLedger.find(query).sort({ date: 1 });
+
+  const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
+  const safeCompanyName = vendor.companyName.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `${safeCompanyName}_Vendor_Ledger.pdf`;
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
+  doc.pipe(res);
+
+  doc.fontSize(16).font('Helvetica-Bold').text('Fab Five Network Pvt Ltd', { align: 'center' });
+  doc.fontSize(10).font('Helvetica').text('1st Floor Plot No. 2456, A KH no. 82/16 Jain Colony', { align: 'center' });
+  doc.text('Contact: 8929882020    E-Mail: info@fab5network.com', { align: 'center' });
+  doc.moveDown(1.5);
+
+  doc.fontSize(14).font('Helvetica-Bold').text(vendor.companyName.toUpperCase(), { align: 'center' });
+  doc.fontSize(12).font('Helvetica').text('Vendor Ledger Account (Accounts Payable)', { align: 'center' });
+
+  const displayStartDate = fromDate ? new Date(fromDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[0].date).toLocaleDateString('en-IN') : '-');
+  const displayEndDate = toDate ? new Date(toDate).toLocaleDateString('en-IN') : (ledgers.length > 0 ? new Date(ledgers[ledgers.length - 1].date).toLocaleDateString('en-IN') : '-');
+  doc.fontSize(10).font('Helvetica').text(`${displayStartDate} to ${displayEndDate}`, { align: 'center' });
+  doc.moveDown(1.5);
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const tableRows = [];
+
+  if (fromDate) {
+    let opDebitStr = '';
+    let opCreditStr = '';
+
+    if (openingBalance > 0) {
+      totalCredit += openingBalance;
+      opCreditStr = openingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else if (openingBalance < 0) {
+      totalDebit += Math.abs(openingBalance);
+      opDebitStr = Math.abs(openingBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    } else {
+      opCreditStr = '0.00';
+    }
+
+    tableRows.push([
+      new Date(fromDate).toLocaleDateString('en-IN'),
+      'Opening Balance',
+      opDebitStr,
+      opCreditStr
+    ]);
+  }
+
+  ledgers.forEach(log => {
+    const debitAmt = log.debit || 0;
+    const creditAmt = log.credit || 0;
+
+    totalDebit += debitAmt;
+    totalCredit += creditAmt;
+
+    let particulars = log.description || '-';
+    if (log.credit > 0 && log.invoiceNo) {
+      particulars = `${log.description} - ${log.invoiceNo}`;
+    } else if (log.debit > 0 && log.bankInfo?.bankName) {
+      particulars = `Paid via ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(Ref: ' + log.bankInfo.utrReference + ')' : ''}`;
+    }
+
+    tableRows.push([
+      new Date(log.date).toLocaleDateString('en-IN'),
+      particulars,
+      debitAmt > 0 ? debitAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+      creditAmt > 0 ? creditAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
+    ]);
+  });
+
+  const balance = totalCredit - totalDebit;
+  const isCreditBalance = balance > 0;
+
+  tableRows.push(['', '', '', '']);
+
+  tableRows.push([
+    '',
+    'Total',
+    totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+    totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  ]);
+
+  if (balance !== 0) {
+    tableRows.push([
+      '',
+      isCreditBalance ? 'To Closing Balance' : 'By Closing Balance',
+      isCreditBalance ? Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+      isCreditBalance ? '' : Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })
+    ]);
+  }
+
+  const grandTotal = Math.max(totalDebit, totalCredit);
+  tableRows.push([
+    '',
+    '',
+    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+    grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  ]);
+
+  const table = {
+    headers: [
+      { label: "Date", property: "date", width: 70 },
+      { label: "Particulars", property: "particulars", width: 270 },
+      { label: "Debit", property: "debit", width: 85, align: "right" },
+      { label: "Credit", property: "credit", width: 85, align: "right" }
+    ],
+    rows: tableRows
+  };
+
+  await doc.table(table, {
+    prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10),
+    prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+      if (indexRow >= tableRows.length - 3 || (fromDate && indexRow === 0)) {
+        doc.font("Helvetica-Bold").fontSize(10);
+      } else {
+        doc.font("Helvetica").fontSize(10);
+      }
+    },
+    divider: {
+      header: { disabled: false, width: 1, opacity: 1 },
+      horizontal: { disabled: true },
+    },
+    padding: 5
+  });
+
+  doc.end();
 });

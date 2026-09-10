@@ -39,4 +39,17 @@ export const purchaseLedgerService = {
   commitBulkUpload: async (payload) => {
     return await apiClient.post('/purchase-ledger/bulk/commit', payload);
   },
+
+  downloadVendorLedgerExcel: async (vendorId) => {
+    return await apiClient.get(`/purchase-ledger/vendor/${vendorId}/export/excel`, {
+      responseType: 'blob',
+    });
+  },
+
+  downloadVendorLedgerPDF: async (vendorId, params = {}) => {
+    return await apiClient.get(`/purchase-ledger/vendor/${vendorId}/export/pdf`, {
+      params,
+      responseType: 'blob',
+    });
+  },
 };

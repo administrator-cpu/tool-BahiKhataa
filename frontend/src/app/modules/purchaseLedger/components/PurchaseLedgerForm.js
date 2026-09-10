@@ -13,6 +13,8 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
   const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
+  const [isCustomProduct, setIsCustomProduct] = useState(false);
+  const [isCustomTds, setIsCustomTds] = useState(false);
 
   const initialFormState = {
     date: new Date().toISOString().split("T")[0],
@@ -78,8 +80,22 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         isUsingAdvance: editingLog.isUsingAdvance || false,
         allocations: editingLog.allocations || [],
       });
+
+      if (editingLog.productType && !["NLD", "Enterprise ILL"].includes(editingLog.productType)) {
+        setIsCustomProduct(true);
+      } else {
+        setIsCustomProduct(false);
+      }
+
+      if (editingLog.tdsHead && !["194J", "194I", "194C", "194H"].includes(editingLog.tdsHead)) {
+        setIsCustomTds(true);
+      } else {
+        setIsCustomTds(false);
+      }
     } else {
       setFormData(initialFormState);
+      setIsCustomProduct(false);
+      setIsCustomTds(false);
     }
   }, [editingLog]);
 
@@ -216,23 +232,48 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
                 onChange={onChange}
               />
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1.5 uppercase tracking-wider">
-                  Product Type
-                </label>
-                <div className="relative">
-                  <select
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Product Type
+                  </label>
+                  {isCustomProduct && (
+                    <button type="button" onClick={() => { setIsCustomProduct(false); setFormData(p => ({ ...p, productType: "" })) }} className="text-[10px] font-bold text-purple-600 hover:underline hover:cursor-pointer">
+                      Back to List
+                    </button>
+                  )}
+                </div>
+                {isCustomProduct ? (
+                  <input
+                    type="text"
                     name="productType"
                     value={formData.productType}
                     onChange={onChange}
-                    className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
-                  >
-                    <option value="">Select Product Type...</option>
-                    <option value="NLD">NLD</option>
-                    <option value="Enterprise ILL">Enterprise ILL</option>
-                    <option value="Others">Others</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                </div>
+                    placeholder="Type custom product..."
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                ) : (
+                  <div className="relative">
+                    <select
+                      name="productType"
+                      value={formData.productType}
+                      onChange={(e) => {
+                        if (e.target.value === "Custom") {
+                          setIsCustomProduct(true);
+                          setFormData(prev => ({ ...prev, productType: "" }));
+                        } else {
+                          onChange(e);
+                        }
+                      }}
+                      className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
+                    >
+                      <option value="">Select Product Type...</option>
+                      <option value="NLD">NLD</option>
+                      <option value="Enterprise ILL">Enterprise ILL</option>
+                      <option value="Custom">Others (Type manually)</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -272,25 +313,48 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500 ml-1 uppercase tracking-wider">
-                    TDS Head
-                  </label>
-                  <div className="relative">
-                    <select
+                  <div className="flex items-center justify-between ml-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      TDS Head
+                    </label>
+                    {isCustomTds && (
+                      <button type="button" onClick={() => { setIsCustomTds(false); setFormData(p => ({ ...p, tdsHead: "" })) }} className="text-[10px] font-bold text-orange-600 hover:underline hover:cursor-pointer">
+                        Back to List
+                      </button>
+                    )}
+                  </div>
+                  {isCustomTds ? (
+                    <input
+                      type="text"
                       name="tdsHead"
                       value={formData.tdsHead}
                       onChange={onChange}
-                      className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-orange-500 appearance-none cursor-pointer"
-                    >
-                      <option value="">Select TDS Head</option>
-                      <option value="194J">194J</option>
-                      <option value="194I">194I</option>
-                      <option value="194C">194C</option>
-                      <option value="194H">194H</option>
-                      <option value="Others">Others</option>
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                  </div>
+                      placeholder="Type custom TDS Head..."
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  ) : (
+                    <div className="relative">
+                      <select
+                        name="tdsHead"
+                        value={formData.tdsHead}
+                        onChange={(e) => {
+                          if (e.target.value === "Custom") {
+                            setIsCustomTds(true);
+                            setFormData(prev => ({ ...prev, tdsHead: "" }));
+                          } else {
+                            onChange(e);
+                          }
+                        }}
+                        className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-orange-500 appearance-none cursor-pointer"
+                      >
+                        <option value="">Select TDS Head</option>
+                        <option value="194J">194J</option>
+                        <option value="194I">194I</option>
+                        <option value="Custom">Others (Type manually)</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                    </div>
+                  )}
                 </div>
 
                 <InputField

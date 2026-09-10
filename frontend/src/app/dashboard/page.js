@@ -24,6 +24,18 @@ export default function UnifiedDashboard() {
 
   const [activeTab, setActiveTab] = useState("customers");
 
+  useEffect(() => {
+    const savedTab = sessionStorage.getItem("bahiKhata_dashboardTab");
+    if (savedTab === "vendors" || savedTab === "customers") {
+      setActiveTab(savedTab);
+    }
+  }, []);
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    sessionStorage.setItem("bahiKhata_dashboardTab", tab);
+  };
+
   const [vendors, setVendors] = useState([]);
   const [isVendorsLoading, setIsVendorsLoading] = useState(false);
 
@@ -101,7 +113,7 @@ export default function UnifiedDashboard() {
         <div className="flex justify-center mb-6">
           <div className="bg-slate-200/50 p-1 rounded-xl inline-flex shadow-sm border border-slate-200">
             <button
-              onClick={() => setActiveTab("customers")}
+              onClick={() => handleTabSwitch("customers")}
               className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "customers"
                 ? "bg-white text-blue-700 shadow-sm border border-slate-200"
                 : "text-slate-500 hover:text-slate-700"
@@ -110,7 +122,7 @@ export default function UnifiedDashboard() {
               <Briefcase size={16} /> Receivables (Sales)
             </button>
             <button
-              onClick={() => setActiveTab("vendors")}
+              onClick={() => handleTabSwitch("vendors")}
               className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "vendors"
                 ? "bg-white text-purple-700 shadow-sm border border-slate-200"
                 : "text-slate-500 hover:text-slate-700"
@@ -141,9 +153,14 @@ export default function UnifiedDashboard() {
           {userRole === "admin" && (
             <>
               {activeTab === "customers" ? (
-                <Button variant="primary" icon={Plus} onClick={() => router.push(`/dashboard/customers/create`)}>
-                  Onboard Customer
-                </Button>
+                <>
+                  <Button variant="primary" icon={Plus} onClick={() => router.push(`/dashboard/customers/create`)}>
+                    Onboard Customer
+                  </Button>
+                  <Button variant="secondary" icon={ChartLine} onClick={() => router.push(`/dashboard/audit`)}>
+                    Audit Log
+                  </Button>
+                </>
               ) : (
                 <>
                   <Button variant="secondary" icon={FileSpreadsheet} className="!text-emerald-700 !bg-emerald-50 hover:!bg-emerald-100 !border-emerald-200" onClick={handleDownloadTDS}>
@@ -157,9 +174,6 @@ export default function UnifiedDashboard() {
 
               <Button variant="secondary" icon={Users} onClick={() => router.push(`/dashboard/agents/create`)}>
                 Add User
-              </Button>
-              <Button variant="secondary" icon={ChartLine} onClick={() => router.push(`/dashboard/audit`)}>
-                Audit Log
               </Button>
             </>
           )}
