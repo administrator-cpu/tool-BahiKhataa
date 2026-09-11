@@ -1,127 +1,161 @@
 "use client";
 
-import React from 'react';
-import { motion } from 'framer-motion';
-import { AlertCircle, ArrowRight, Building2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { safeFormatCurrency } from '@/app/common/lib/utils';
+import React, { useState } from "react";
+import { motion } from "framer-motion";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { safeFormatCurrency } from "@/app/common/lib/utils";
 
-export default function VendorTable({ vendors = [] }) {
+const COLS = "grid-cols-[2.8fr_1.05fr_1fr_0.85fr_0.85fr_1fr_0.5fr]";
+const HEAD = "font-mono text-[10px] tracking-[0.11em] text-[#8A8780]";
+const WEAVE =
+  "repeating-linear-gradient(135deg,rgba(16,16,20,0.022) 0 1px,transparent 1px 8px)";
+
+function Bucket({ value, tone, weight = "font-semibold" }) {
+  const n = Number(value) || 0;
+  return (
+    <span
+      className={
+        "text-right text-[12.5px] " + (n ? `${weight} ${tone}` : "font-medium text-[#8A8780]")
+      }
+    >
+      {safeFormatCurrency(value)}
+    </span>
+  );
+}
+
+function RowSkeleton() {
+  return (
+    <div className={`grid ${COLS} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[15px]`}>
+      <i className="h-3 w-[62%] animate-pulse rounded-md bg-[#EFEBE2]" />
+      {Array.from({ length: 5 }).map((_, i) => (
+        <i key={i} className="h-3 w-full animate-pulse justify-self-end rounded-md bg-[#EFEBE2]" />
+      ))}
+      <i className="h-8 w-8 justify-self-end rounded-[10px] bg-[#F4F0E7]" />
+    </div>
+  );
+}
+
+export default function VendorTable({ vendors = [], isLoading = false }) {
   const router = useRouter();
+  const [openingId, setOpeningId] = useState(null);
   const safeVendors = Array.isArray(vendors) ? vendors : [];
 
-  // Calculate Totals inline for the footer
-  const totals = safeVendors.reduce((acc, curr) => ({
-    outstanding: acc.outstanding + (curr?.aging?.total || 0),
-    current: acc.current + (curr?.aging?.current || 0),
-    d30: acc.d30 + (curr?.aging?.thirtyPlus || 0),
-    d60: acc.d60 + (curr?.aging?.sixtyPlus || 0),
-    d90: acc.d90 + (curr?.aging?.ninetyPlus || 0),
-  }), { outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
+  const totals = safeVendors.reduce(
+    (acc, curr) => ({
+      outstanding: acc.outstanding + (curr?.aging?.total || 0),
+      current: acc.current + (curr?.aging?.current || 0),
+      d30: acc.d30 + (curr?.aging?.thirtyPlus || 0),
+      d60: acc.d60 + (curr?.aging?.sixtyPlus || 0),
+      d90: acc.d90 + (curr?.aging?.ninetyPlus || 0),
+    }),
+    { outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 }
+  );
 
   return (
-    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm flex flex-col flex-1 overflow-hidden relative">
-      <div className="overflow-x-auto customScroller flex-1">
-        <table className="w-full text-left border-collapse min-w-[1000px]">
+    <div className="min-w-0 flex-[3_1_640px] overflow-hidden rounded-3xl border border-[#E7E1D6] bg-[#FFFDF9] shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
+      <div className="overflow-x-auto customScroller">
+        <div className="min-w-[940px]">
+          <div className={`grid ${COLS} gap-2.5 border-y border-[#EDE7DB] bg-[#F4F0E7] px-[22px] py-[11px]`}>
+            <span className={HEAD}>VENDOR / SUPPLIER</span>
+            <span className="font-mono text-[10px] tracking-[0.11em] text-[#101014] text-right">TOTAL PAYABLE</span>
+            <span className={`${HEAD} text-right`}>CURRENT</span>
+            <span className={`${HEAD} text-right`}>30+</span>
+            <span className={`${HEAD} text-right`}>60+</span>
+            <span className="font-mono text-[10px] tracking-[0.11em] text-[#8E1B14] text-right">90+</span>
+            <span />
+          </div>
 
-          {/* STICKY HEADER */}
-          <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest sticky top-0 z-10 shadow-sm">
-            <tr>
-              <th className="px-6 py-4">Vendor / Supplier Name</th>
-              <th className="px-6 py-4 text-right bg-slate-100/50">Total Payable</th>
-              <th className="px-6 py-4 text-right">Current</th>
-              <th className="px-6 py-4 text-right">30+ Days</th>
-              <th className="px-6 py-4 text-right">60+ Days</th>
-              <th className="px-6 py-4 text-right text-red-500">90+ Days</th>
-              <th className="px-6 py-4 text-center w-32">Action</th>
-            </tr>
-          </thead>
-
-          {/* TABLE BODY */}
-          <tbody className="divide-y divide-slate-100 text-sm">
-            {safeVendors.length > 0 ? (
-              safeVendors.map((vendor, index) => {
-                const companyName = String(vendor?.name || 'Unknown');
-                const initial = companyName.charAt(0).toUpperCase();
-
-                return (
-                  <motion.tr
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
-                    key={vendor?.id || index}
-                    className="hover:bg-slate-50/80 transition-colors group"
-                  >
-                    {/* Vendor Name */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
-                          {initial}
-                        </div>
-                        <div className="flex flex-col items-start gap-1">
-                          <p className="font-bold text-slate-900 flex items-center gap-2">
-                            {companyName}
-                          </p>
-                          {vendor.availableAdvance > 0 && (
-                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                              Advance Paid: {safeFormatCurrency(vendor.availableAdvance)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Aging Buckets */}
-                    <td className="px-6 py-4 text-right font-black text-slate-900 bg-slate-50/30">{safeFormatCurrency(vendor?.aging?.total)}</td>
-                    <td className="px-6 py-4 text-right font-medium text-slate-700">{safeFormatCurrency(vendor?.aging?.current)}</td>
-                    <td className="px-6 py-4 text-right font-medium text-orange-600">{safeFormatCurrency(vendor?.aging?.thirtyPlus)}</td>
-                    <td className="px-6 py-4 text-right font-bold text-red-500">{safeFormatCurrency(vendor?.aging?.sixtyPlus)}</td>
-                    <td className="px-6 py-4 text-right font-black text-red-600 bg-red-50/30">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {Number(vendor?.aging?.ninetyPlus) > 0 && <AlertCircle size={14} className="text-red-500" />}
-                        {safeFormatCurrency(vendor?.aging?.ninetyPlus)}
-                      </div>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => router.push(`/dashboard/purchase-ledger/${vendor?.id}`)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-600 bg-purple-50 rounded-lg hover:bg-purple-600 hover:text-white transition-all active:scale-95"
+          {isLoading ? (
+            Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)
+          ) : safeVendors.length ? (
+            safeVendors.map((vendor, index) => {
+              const name = String(vendor?.name || "Unknown");
+              return (
+                <motion.div
+                  key={vendor?.id ?? index}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
+                  className={`grid ${COLS} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span title={name} className="min-w-0 truncate text-[13.5px] font-semibold text-[#101014]">
+                      {name}
+                    </span>
+                    {vendor.availableAdvance > 0 && (
+                      <span
+                        title="Advance paid"
+                        className="shrink-0 rounded-md bg-[#F1F8F3] px-[7px] py-[3px] text-[10.5px] font-semibold text-[#1F6B43]"
                       >
-                        Ledger <ArrowRight size={14} />
-                      </button>
-                    </td>
-                  </motion.tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-slate-500 font-medium flex flex-col items-center justify-center gap-2">
-                  <Building2 size={32} className="text-slate-300" />
-                  No vendors found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                        {safeFormatCurrency(vendor.availableAdvance)} adv
+                      </span>
+                    )}
+                  </div>
 
-      {/* DYNAMIC TOTALS FOOTER */}
-      <div className="bg-slate-900 text-white border-t border-slate-800 sticky bottom-0 z-10 shrink-0">
-        <table className="w-full text-left border-collapse min-w-[1000px]">
-          <tfoot>
-            <tr>
-              <td className="px-6 py-5 font-bold uppercase tracking-widest text-xs text-slate-400 text-right">
-                Total Payables
-              </td>
-              <td className="px-6 py-5 text-right font-black text-lg text-white bg-slate-800/50">{safeFormatCurrency(totals.outstanding)}</td>
-              <td className="px-6 py-5 text-right font-bold text-slate-300">{safeFormatCurrency(totals.current)}</td>
-              <td className="px-6 py-5 text-right font-bold text-orange-400">{safeFormatCurrency(totals.d30)}</td>
-              <td className="px-6 py-5 text-right font-bold text-red-400">{safeFormatCurrency(totals.d60)}</td>
-              <td className="px-6 py-5 text-right font-black text-red-500 bg-red-950/30">{safeFormatCurrency(totals.d90)}</td>
-              <td className="px-6 py-5 w-32"></td>
-            </tr>
-          </tfoot>
-        </table>
+                  <span className="text-right text-[14px] font-bold tracking-[-0.01em] text-[#101014]">
+                    {safeFormatCurrency(vendor?.aging?.total)}
+                  </span>
+                  <span className="text-right text-[12.5px] font-medium text-[#55524C]">
+                    {safeFormatCurrency(vendor?.aging?.current)}
+                  </span>
+                  <Bucket value={vendor?.aging?.thirtyPlus} tone="text-[#8A5B00]" />
+                  <Bucket value={vendor?.aging?.sixtyPlus} tone="text-[#B4301C]" />
+                  <Bucket value={vendor?.aging?.ninetyPlus} tone="text-[#8E1B14]" weight="font-bold" />
+
+                  <span className="text-right">
+                    <button
+                      type="button"
+                      title="Open purchase ledger"
+                      disabled={openingId === vendor?.id}
+                      onClick={() => {
+                        setOpeningId(vendor?.id);
+                        router.push(`/dashboard/purchase-ledger/${vendor?.id}`);
+                      }}
+                      className="inline-grid h-8 w-8 place-items-center rounded-[10px] border border-[#EDE7DB] bg-white transition hover:bg-[#F7F3EA] hover:shadow-[0_1px_3px_rgba(16,16,20,0.10)] active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4301C] disabled:cursor-progress"
+                    >
+                      {openingId === vendor?.id ? (
+                        <Loader2 size={14} className="animate-spin text-[#55524C]" />
+                      ) : (
+                        <ArrowRight size={15} className="text-[#55524C] opacity-70" />
+                      )}
+                    </button>
+                  </span>
+                </motion.div>
+              );
+            })
+          ) : (
+            <div className="px-[22px] py-14 text-center">
+              <div className="text-[15px] font-bold text-[#101014]">No vendors found</div>
+              <div className="mt-1.5 text-[13px] font-medium text-[#6B6862]">
+                Clear the search, or add your first supplier.
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`grid ${COLS} items-center gap-2.5 border-t border-[#E3DCCC] bg-[#EFE9DC] px-[22px] py-[19px]`}
+            style={{ backgroundImage: WEAVE }}
+          >
+            <span className="font-mono text-[10px] tracking-[0.11em] text-[#6B6862]">ALL VENDORS</span>
+            <span className="text-right text-[15px] font-bold text-[#101014]">
+              {isLoading ? "—" : safeFormatCurrency(totals.outstanding)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#55524C]">
+              {isLoading ? "—" : safeFormatCurrency(totals.current)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#8A5B00]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d30)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#B4301C]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d60)}
+            </span>
+            <span className="text-right text-[13px] font-bold text-[#8E1B14]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d90)}
+            </span>
+            <span />
+          </div>
+        </div>
       </div>
     </div>
   );

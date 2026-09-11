@@ -1,6 +1,7 @@
 import Ledger from "../ledger/ledger.model.js";
 import catchAsync from "../../utils/catchAsync.js";
 import { getLegacyCollectionsGrowth, LEGACY_KEY_TO_EMAIL } from "./legacyCollectionsGrowth.js";
+import { getWeeklyCollections } from "./weeklyCollections.js";
 import User from "../auth/user.model.js";
 import mongoose from 'mongoose';
 
@@ -44,6 +45,32 @@ const formatPeriodLabel = (period, range) => {
 };
 
 /**
+ * Builds the aggregation stages needed to scope Ledger rows down to the customers
+ * managed by a single employee (used by both the dashboard overview and the
+ * weekly collections report).
+ */
+const buildEmployeePipelineStages = async (isEmployee, employeeEmail) => {
+  if (!isEmployee || !employeeEmail) return [];
+
+  const userRecord = await User.findOne({ email: employeeEmail });
+
+  if (!userRecord) return [{ $match: { _id: null } }];
+
+  return [
+    {
+      $lookup: {
+        from: "customers",
+        localField: "customer",
+        foreignField: "_id",
+        as: "customerDoc"
+      }
+    },
+    { $unwind: "$customerDoc" },
+    { $match: { "customerDoc.manager": new mongoose.Types.ObjectId(userRecord._id) } }
+  ];
+};
+
+/**
  * GET /reports/dashboard?months=6&range=month&isEmployee=true&employeeName=Arunav%20Moulik
  */
 export const getCollectionsOverview = catchAsync(async (req, res, next) => {
@@ -51,29 +78,7 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
   const employeeName = req.query.employeeName;
   const employeeEmail = req.query.employeeEmail;
 
-  let employeePipelineStages = [];
-  let userRecord = null;
-
-  if (isEmployee && employeeEmail) {
-    userRecord = await User.findOne({ email: employeeEmail });
-
-    if (userRecord) {
-      employeePipelineStages = [
-        {
-          $lookup: {
-            from: "customers",
-            localField: "customer",
-            foreignField: "_id",
-            as: "customerDoc"
-          }
-        },
-        { $unwind: "$customerDoc" },
-        { $match: { "customerDoc.manager": new mongoose.Types.ObjectId(userRecord._id) } }
-      ];
-    } else {
-      employeePipelineStages = [{ $match: { _id: null } }];
-    }
-  }
+  const employeePipelineStages = await buildEmployeePipelineStages(isEmployee, employeeEmail);
 
   const monthsBack = Number(req.query.months) || 6;
   const growthRange = ["day", "month", "year"].includes(req.query.range) ? req.query.range : "month";
@@ -246,6 +251,9 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
     ? await getLegacyCollectionsGrowth(LIVE_DATA_CUTOFF, isEmployee ? employeeEmail : null)
     : [];
 
+  const weeklyMonthsBack = Number(req.query.weeklyMonths) || 4;
+  const weeklyCollections = await getWeeklyCollections(weeklyMonthsBack, employeePipelineStages);
+
   const legacyMonthMap = new Map();
   legacyGrowthRows.forEach(row => {
     const dateObj = new Date(row.sortDate);
@@ -353,7 +361,26 @@ export const getCollectionsOverview = catchAsync(async (req, res, next) => {
       collectionsGrowth: {
         data: collectionsGrowth,
         employees: growthEmployees
-      }
+      },
+      weeklyCollections
     }
+  });
+});
+
+/**
+ * GET /reports/weekly-collections?months=3&isEmployee=true&employeeEmail=arunav@fab5network.com
+ * Standalone endpoint for the "Collections by Week" chart (W1-W5 per month).
+ */
+export const getWeeklyCollectionsReport = catchAsync(async (req, res, next) => {
+  const isEmployee = String(req.query.isEmployee) === 'true';
+  const employeeEmail = req.query.employeeEmail;
+  const monthsBack = Number(req.query.months) || 4;
+
+  const employeePipelineStages = await buildEmployeePipelineStages(isEmployee, employeeEmail);
+  const weeklyCollections = await getWeeklyCollections(monthsBack, employeePipelineStages);
+
+  res.status(200).json({
+    status: "success",
+    data: { weeklyCollections }
   });
 });
