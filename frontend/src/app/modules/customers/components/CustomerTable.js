@@ -1,167 +1,212 @@
 "use client";
 
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { UserCircle, AlertCircle, ArrowRight, CheckCircle2, Link as LinkIcon } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import React, { useState } from "react";
+import { motion } from "framer-motion";
+import { ArrowRight, CheckCircle2, Link as LinkIcon, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-import { safeFormatCurrency } from '@/app/common/lib/utils';
-import { useCustomerTotals } from '../hooks/useCustomerTotals';
+import { safeFormatCurrency } from "@/app/common/lib/utils";
+import { useCustomerTotals } from "../hooks/useCustomerTotals";
+import CompareAndSyncModal from "./CompareAndSyncModal";
 
-// 1. Import the new modal we just created!
-import CompareAndSyncModal from './CompareAndSyncModal';
+const COLS_ADMIN =
+  "grid-cols-[2.5fr_1.05fr_1.05fr_1fr_0.85fr_0.85fr_1fr_0.5fr]";
+const COLS_AGENT = "grid-cols-[2.5fr_1.05fr_1fr_0.85fr_0.85fr_1fr_0.5fr]";
 
-export default function CustomerTable({ customers = [], currentUserRole, onRefresh }) {
+const HEAD = "font-mono text-[10px] tracking-[0.11em] text-[#8A8780]";
+const WEAVE =
+  "repeating-linear-gradient(135deg,rgba(16,16,20,0.022) 0 1px,transparent 1px 8px)";
+
+/** Muted when zero, toned when it carries money. */
+function Bucket({ value, tone, weight = "font-semibold" }) {
+  const n = Number(value) || 0;
+  return (
+    <span
+      className={
+        "text-right text-[12.5px] " + (n ? `${weight} ${tone}` : "font-medium text-[#8A8780]")
+      }
+    >
+      {safeFormatCurrency(value)}
+    </span>
+  );
+}
+
+function RowSkeleton({ cols }) {
+  return (
+    <div className={`grid ${cols} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[15px]`}>
+      <span className="flex items-center gap-2.5">
+        <i className="h-[15px] w-[15px] rounded-full bg-[#EFEBE2]" />
+        <i className="h-3 w-[62%] animate-pulse rounded-md bg-[#EFEBE2]" />
+      </span>
+      {Array.from({ length: cols === COLS_ADMIN ? 6 : 5 }).map((_, i) => (
+        <i key={i} className="h-3 w-full animate-pulse justify-self-end rounded-md bg-[#EFEBE2]" />
+      ))}
+      <i className="h-8 w-8 justify-self-end rounded-[10px] bg-[#F4F0E7]" />
+    </div>
+  );
+}
+
+export default function CustomerTable({
+  customers = [],
+  currentUserRole,
+  onRefresh,
+  isLoading = false,
+}) {
   const router = useRouter();
-  
-  // 2. Modal State for CRM Sync
-  const [syncModal, setSyncModal] = useState({
-    isOpen: false,
-    customerId: null,
-    customerName: ''
-  });
-  
+  const isAdmin = currentUserRole === "admin";
+  const cols = isAdmin ? COLS_ADMIN : COLS_AGENT;
+
+  const [syncModal, setSyncModal] = useState({ isOpen: false, customerId: null, customerName: "" });
+  const [openingId, setOpeningId] = useState(null);
+
   const safeCustomers = Array.isArray(customers) ? customers : [];
   const totals = useCustomerTotals(safeCustomers);
 
+  const openLedger = (id) => {
+    setOpeningId(id);
+    router.push(`/dashboard/ledger/${id}`);
+  };
+
   return (
-    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm flex flex-col flex-1 overflow-hidden relative">
-      <div className="overflow-x-auto customScroller flex-1">
-        <table className="w-full text-left border-collapse min-w-[1000px]">
-          
-          {/* STICKY HEADER */}
-          <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest sticky top-0 z-10 shadow-sm">
-            <tr>
-              <th className="px-6 py-4">Customer Name</th>
-              {currentUserRole === 'admin' && <th className="px-6 py-4 w-32">Manager</th>}
-              <th className="px-6 py-4 text-right bg-slate-100/50">Total O/S</th>
-              <th className="px-6 py-4 text-right">Current</th>
-              <th className="px-6 py-4 text-right">30+ Days</th>
-              <th className="px-6 py-4 text-right">60+ Days</th>
-              <th className="px-6 py-4 text-right text-red-500">90+ Days</th>
-              <th className="px-6 py-4 text-center w-32">Action</th>
-            </tr>
-          </thead>
-          
-          {/* TABLE BODY */}
-          <tbody className="divide-y divide-slate-100 text-sm">
-            {safeCustomers.length > 0 ? (
-              safeCustomers.map((customer, index) => {
-                const companyName = (customer?.company||customer?.companyName) ? String(customer.company || customer.companyName) : 'Unknown';
-                const initial = companyName.charAt(0).toUpperCase();
+    <div className="min-w-0 flex-[3_1_70vh] overflow-hidden rounded-3xl border border-[#d9d9d9] bg-[#FFFDF9] shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
+      {/* One scroller: vertical for rows, horizontal for columns. Header + footer pinned. */}
+      <div className="customScroller max-h-[calc(100vh-230px)] min-h-[360px] overflow-auto overscroll-contain">
+        <div className="min-w-[940px]">
+          {/* Header — pinned */}
+          <div className={`sticky top-0 z-20 grid ${cols} gap-2.5 border-y border-[#EDE7DB] bg-[#F4F0E7] px-[22px] py-[11px]`}>
+            <span className={HEAD}>CUSTOMER</span>
+            {isAdmin && <span className={HEAD}>MANAGER</span>}
+            <span className="font-mono text-[10px] tracking-[0.11em] text-[#101014] text-right">TOTAL O/S</span>
+            <span className={`${HEAD} text-right`}>CURRENT</span>
+            <span className={`${HEAD} text-right`}>30+</span>
+            <span className={`${HEAD} text-right`}>60+</span>
+            <span className="font-mono text-[10px] tracking-[0.11em] text-[#8E1B14] text-right">90+</span>
+            <span />
+          </div>
 
-                return (
-                  <motion.tr 
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
-                    key={customer?.id || index} 
-                    className="hover:bg-slate-50/80 transition-colors group"
-                  >
-                    {/* Customer Name */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
-                          {initial}
-                        </div>
-                        <div className="flex flex-col items-start gap-1">
-                          <p className="font-bold text-slate-900 flex items-center gap-2">
-                            {companyName}
-                            
-                            {/* 🟢 THE NEW CRM SYNC BADGES */}
-                            {currentUserRole === 'admin' && (
-                              customer.isCrmLinked ? (
-                                <span title="Linked to CRM" className="text-emerald-500 bg-emerald-50 rounded-full p-0.5">
-                                  <CheckCircle2 size={14} />
-                                </span>
-                              ) : (
-                                <button 
-                                  onClick={() => setSyncModal({ isOpen: true, customerId: customer.id, customerName: companyName })}
-                                  className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-md border border-indigo-200 hover:bg-indigo-600 hover:text-white flex items-center gap-1 transition-colors shadow-sm"
-                                >
-                                  <LinkIcon size={10} /> Sync
-                                </button>
-                              )
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Manager Link (Admin Only) */}
-                    {currentUserRole === 'admin' && (
-                      <td className="px-6 py-4">
-                        <button 
-                          onClick={() => router.push(`/dashboard/sales/${customer?.managerId}`)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 hover:text-blue-600 hover:bg-blue-50 text-xs font-semibold transition-colors cursor-pointer"
+          {/* Rows */}
+          {isLoading ? (
+            Array.from({ length: 8 }).map((_, i) => <RowSkeleton key={i} cols={cols} />)
+          ) : safeCustomers.length ? (
+            safeCustomers.map((customer, index) => {
+              const name = String(customer?.company || customer?.companyName || "Unknown");
+              const id = customer?.id ?? index;
+              return (
+                <motion.div
+                  key={id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
+                  className={`grid ${cols} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    {isAdmin &&
+                      (customer.isCrmLinked ? (
+                        <CheckCircle2
+                          size={15}
+                          title="Linked to Connect CRM"
+                          className="shrink-0 text-[#55524C] opacity-55"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          title="Link this customer to Connect CRM"
+                          onClick={() =>
+                            setSyncModal({ isOpen: true, customerId: customer.id, customerName: name })
+                          }
+                          className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] border border-[#F0DCB0] bg-[#FDF0CE] transition hover:brightness-[0.96] active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4301C]"
                         >
-                          <UserCircle size={14} /> {customer?.manager || 'N/A'}
+                          <LinkIcon size={12} className="text-[#7A5A00]" />
                         </button>
-                      </td>
-                    )}
+                      ))}
+                    <span title={name} className="min-w-0 truncate text-[13.5px] font-semibold text-[#101014]">
+                      {name}
+                    </span>
+                  </div>
 
-                    {/* Aging Buckets */}
-                    <td className="px-6 py-4 text-right font-black text-slate-900 bg-slate-50/30">{safeFormatCurrency(customer?.outstanding)}</td>
-                    <td className="px-6 py-4 text-right font-medium text-slate-700">{safeFormatCurrency(customer?.current)}</td>
-                    <td className="px-6 py-4 text-right font-medium text-orange-600">{safeFormatCurrency(customer?.d30)}</td>
-                    <td className="px-6 py-4 text-right font-bold text-red-500">{safeFormatCurrency(customer?.d60)}</td>
-                    <td className="px-6 py-4 text-right font-black text-red-600 bg-red-50/30">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {Number(customer?.d90) > 0 && <AlertCircle size={14} className="text-red-500" />}
-                        {safeFormatCurrency(customer?.d90)}
-                      </div>
-                    </td>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      title={customer?.manager || "Unassigned"}
+                      onClick={() => router.push(`/dashboard/sales/${customer?.managerId}`)}
+                      className="min-w-0 truncate text-left text-[12px] font-medium text-[#55524C] transition-colors hover:text-[#B4301C]"
+                    >
+                      {customer?.manager || "—"}
+                    </button>
+                  )}
 
-                    {/* Actions */}
-                    <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => router.push(`/dashboard/ledger/${customer?.id}`)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition-all active:scale-95"
-                      >
-                        Ledger <ArrowRight size={14} />
-                      </button>
-                    </td>
-                  </motion.tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-slate-500 font-medium">
-                  No customers found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  <span className="text-right text-[14px] font-bold tracking-[-0.01em] text-[#101014]">
+                    {safeFormatCurrency(customer?.outstanding)}
+                  </span>
+                  <span className="text-right text-[12.5px] font-medium text-[#55524C]">
+                    {safeFormatCurrency(customer?.current)}
+                  </span>
+                  <Bucket value={customer?.d30} tone="text-[#8A5B00]" />
+                  <Bucket value={customer?.d60} tone="text-[#B4301C]" />
+                  <Bucket value={customer?.d90} tone="text-[#8E1B14]" weight="font-bold" />
+
+                  <span className="text-right">
+                    <button
+                      type="button"
+                      title="Open ledger"
+                      onClick={() => openLedger(customer?.id)}
+                      className="inline-grid h-8 w-8 place-items-center rounded-[10px] border border-[#EDE7DB] bg-white transition hover:bg-[#F7F3EA] hover:shadow-[0_1px_3px_rgba(16,16,20,0.10)] active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4301C] disabled:cursor-progress"
+                      disabled={openingId === customer?.id}
+                    >
+                      {openingId === customer?.id ? (
+                        <Loader2 size={14} className="animate-spin text-[#55524C]" />
+                      ) : (
+                        <ArrowRight size={15} className="text-[#55524C] opacity-70" />
+                      )}
+                    </button>
+                  </span>
+                </motion.div>
+              );
+            })
+          ) : (
+            <div className="px-[22px] py-14 text-center">
+              <div className="text-[15px] font-bold text-[#101014]">Nothing matches</div>
+              <div className="mt-1.5 text-[13px] font-medium text-[#6B6862]">
+                Clear the search or the overdue filter.
+              </div>
+            </div>
+          )}
+
+          {/* Totals footer — pinned to the bottom of the scroller */}
+          <div
+            className={`sticky bottom-0 z-20 grid ${cols} items-center gap-2.5 border-t bottom-0 border-[#E3DCCC] bg-[#EFE9DC] px-[22px] py-[19px] shadow-[0_-1px_2px_rgba(16,16,20,0.05)]`}
+            style={{ backgroundImage: WEAVE }}
+          >
+            <span className={`font-mono text-[10px] tracking-[0.11em] text-[#6B6862] ${isAdmin ? "col-span-2" : ""}`}>
+              {isAdmin ? "ALL CUSTOMERS" : "MY PORTFOLIO"}
+              {!isLoading && safeCustomers.length ? ` · ${safeCustomers.length}` : ""}
+            </span>
+            <span className="text-right text-[15px] font-bold text-[#101014]">
+              {isLoading ? "—" : safeFormatCurrency(totals.outstanding)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#55524C]">
+              {isLoading ? "—" : safeFormatCurrency(totals.current)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#8A5B00]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d30)}
+            </span>
+            <span className="text-right text-[13px] font-semibold text-[#B4301C]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d60)}
+            </span>
+            <span className="text-right text-[13px] font-bold text-[#8E1B14]">
+              {isLoading ? "—" : safeFormatCurrency(totals.d90)}
+            </span>
+            <span />
+          </div>
+        </div>
       </div>
 
-      {/* DYNAMIC TOTALS FOOTER */}
-      <div className="bg-slate-900 text-white border-t border-slate-800 sticky bottom-0 z-10 shrink-0">
-        <table className="w-full text-left border-collapse min-w-[1000px]">
-          <tfoot>
-            <tr>
-              <td className="px-6 py-5 font-bold uppercase tracking-widest text-xs text-slate-400 text-right">
-                {currentUserRole === 'admin' ? 'Global Totals' : 'My Portfolio'}
-              </td>
-              {currentUserRole === 'admin' && <td className="w-32"></td>}
-              <td className="px-6 py-5 text-right font-black text-lg text-white bg-slate-800/50">{safeFormatCurrency(totals.outstanding)}</td>
-              <td className="px-6 py-5 text-right font-bold text-slate-300">{safeFormatCurrency(totals.current)}</td>
-              <td className="px-6 py-5 text-right font-bold text-orange-400">{safeFormatCurrency(totals.d30)}</td>
-              <td className="px-6 py-5 text-right font-bold text-red-400">{safeFormatCurrency(totals.d60)}</td>
-              <td className="px-6 py-5 text-right font-black text-red-500 bg-red-950/30">{safeFormatCurrency(totals.d90)}</td>
-              <td className="px-6 py-5 w-32"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {/* 3. Render the Modal */}
-      <CompareAndSyncModal 
+      <CompareAndSyncModal
         isOpen={syncModal.isOpen}
-        onClose={() => setSyncModal({ isOpen: false, customerId: null, customerName: '' })}
+        onClose={() => setSyncModal({ isOpen: false, customerId: null, customerName: "" })}
         customerId={syncModal.customerId}
         customerName={syncModal.customerName}
-        onSuccess={() => {
-          if (onRefresh) onRefresh();
-        }}
+        onSuccess={() => onRefresh && onRefresh()}
       />
     </div>
   );

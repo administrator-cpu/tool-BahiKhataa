@@ -1,50 +1,58 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase, FileSpreadsheet } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase,
+  FileSpreadsheet, Bell, Filter, Calendar, X,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 
-// Hooks & Context
 import { useAuth } from "../common/context/AuthContext";
 import { useCustomers } from "../modules/customers/hooks/useCustomers";
 import { vendorService } from "../modules/Vendor/vendor.service";
-import { purchaseLedgerService } from "../modules/purchaseLedger/purchaseLedger.service"
+import { purchaseLedgerService } from "../modules/purchaseLedger/purchaseLedger.service";
 
-// Components
 import Button from "../common/components/Button";
-import DashboardLayout from "../common/layout/DashboardLayout";
+import SummaryRail from "../common/components/SummaryRail";
 import CustomerTable from "../modules/customers/components/CustomerTable";
 import VendorTable from "../modules/Vendor/comnponents/VendorTable";
 import NotificationMenu from "../common/components/NotificationDrawer";
+import { buildAgeing, customerAgeing, vendorAgeing } from "../common/lib/ageing";
+
+const TAB_KEY = "bahiKhata_dashboardTab";
 
 export default function UnifiedDashboard() {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
+  const { userRole, isAuthChecking, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState("customers");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+
+  const [vendors, setVendors] = useState([]);
+  const [isVendorsLoading, setIsVendorsLoading] = useState(false);
+  const [isTdsLoading, setIsTdsLoading] = useState(false);
+  const [tdsDone, setTdsDone] = useState(false);
+
+  const { customers, isLoading: isCustomersLoading, refresh: refreshCustomers } = useCustomers();
+  const isPay = activeTab === "vendors";
 
   useEffect(() => {
-    const savedTab = sessionStorage.getItem("bahiKhata_dashboardTab");
-    if (savedTab === "vendors" || savedTab === "customers") {
-      setActiveTab(savedTab);
-    }
+    const saved = sessionStorage.getItem(TAB_KEY);
+    if (saved === "vendors" || saved === "customers") setActiveTab(saved);
   }, []);
 
   const handleTabSwitch = (tab) => {
     setActiveTab(tab);
-    sessionStorage.setItem("bahiKhata_dashboardTab", tab);
+    setSearchQuery("");
+    setOverdueOnly(false);
+    sessionStorage.setItem(TAB_KEY, tab);
   };
 
-  const [vendors, setVendors] = useState([]);
-  const [isVendorsLoading, setIsVendorsLoading] = useState(false);
-
-  const { userRole, isAuthChecking, logout } = useAuth();
-  const { customers, isLoading: isCustomersLoading, refresh: refreshCustomers } = useCustomers();
-
   useEffect(() => {
-    if (userRole === "admin" && activeTab === "vendors" && vendors.length === 0) {
-      const fetchVendors = async () => {
+    if (userRole === "admin" && isPay && vendors.length === 0) {
+      (async () => {
         setIsVendorsLoading(true);
         try {
           const res = await vendorService.getVendorsDashboard();
@@ -54,157 +62,243 @@ export default function UnifiedDashboard() {
         } finally {
           setIsVendorsLoading(false);
         }
-      };
-      fetchVendors();
+      })();
     }
-  }, [activeTab, userRole, vendors.length]);
+  }, [isPay, userRole, vendors.length]);
 
-  // 3. Handle Search based on active tab
-  const visibleCustomers = (customers || []).filter((c) => {
-    const companyStr = String(c.company || c.companyName || "").toLowerCase();
-    const managerStr = String(c.managerName || c.manager || "").toLowerCase();
-    const searchStr = searchQuery.toLowerCase();
+  const handleDownloadTDS = async () => {
+    const toastId = toast.loading("Generating TDS report…");
+    setIsTdsLoading(true);
+    try {
+      const response = await purchaseLedgerService.exportTdsReport();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `Vendor_TDS_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("Report downloaded", { id: toastId });
+      setTdsDone(true);
+      setTimeout(() => setTdsDone(false), 2000);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to download TDS report", { id: toastId });
+    } finally {
+      setIsTdsLoading(false);
+    }
+  };
 
-    return companyStr.includes(searchStr) || managerStr.includes(searchStr);
-  });
+  const isOverdue = (row) =>
+    isPay
+      ? (row?.aging?.thirtyPlus || 0) + (row?.aging?.sixtyPlus || 0) + (row?.aging?.ninetyPlus || 0) > 0
+      : (row?.d30 || 0) + (row?.d60 || 0) + (row?.d90 || 0) > 0;
 
-  const visibleVendors = vendors.filter(
-    (v) => (v.name || "").toLowerCase().includes(searchQuery.toLowerCase())
+  const q = searchQuery.trim().toLowerCase();
+
+  const visibleCustomers = useMemo(
+    () =>
+      (customers || []).filter((c) => {
+        const company = String(c.company || c.companyName || "").toLowerCase();
+        const manager = String(c.managerName || c.manager || "").toLowerCase();
+        const match = !q || company.includes(q) || manager.includes(q);
+        return match && (!overdueOnly || isOverdue(c));
+      }),
+    [customers, q, overdueOnly, isPay]
   );
+
+  const visibleVendors = useMemo(
+    () =>
+      vendors.filter((v) => {
+        const match = !q || (v.name || "").toLowerCase().includes(q);
+        return match && (!overdueOnly || isOverdue(v));
+      }),
+    [vendors, q, overdueOnly, isPay]
+  );
+
+  const ageing = useMemo(
+    () =>
+      isPay
+        ? buildAgeing(vendors, vendorAgeing)
+        : buildAgeing(customers || [], customerAgeing),
+    [isPay, vendors, customers]
+  );
+
+  const isTableLoading = isPay ? isVendorsLoading : isCustomersLoading;
 
   if (isAuthChecking) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-white text-slate-900">
-        <Loader2 size={40} className="animate-spin mb-4 text-blue-600" />
-        <p className="text-lg font-medium">Authenticating Workspace...</p>
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#EFEBE4] text-[#101014]">
+        <Loader2 size={34} className="mb-4 animate-spin text-[#B4301C]" />
+        <p className="text-[14px] font-semibold text-[#6B6862]">Authenticating workspace…</p>
       </div>
     );
   }
 
-  const handleDownloadTDS = async () => {
-    const toastId = toast.loading("Generating TDS Report...");
-    try {
-      const response = await purchaseLedgerService.exportTdsReport();
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `Vendor_TDS_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast.success("Report downloaded successfully!", { id: toastId });
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to download TDS Report.", { id: toastId });
-    }
-  };
+  const isAdmin = userRole === "admin";
 
   return (
-    <DashboardLayout
-      hideBack={true}
-      breadcrumbs={
-        <span className="font-bold text-slate-900 text-lg">
-          BahiKhata Dashboard
-        </span>
-      }
+    <div
+      className="min-h-screen bg-[#EFEBE4] px-4 pb-11 pt-6 font-sans sm:px-6 lg:px-10"
+      style={{
+        backgroundImage: "radial-gradient(rgba(16,16,20,0.035) 1px, transparent 1px)",
+        backgroundSize: "22px 22px",
+      }}
     >
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-[18px]">
+        {/* Top bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-[#E7E1D6] bg-[#FFFDF9] px-4 py-3 shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
+          {/* <div className="flex items-center gap-3">
+            <span className="h-2.5 w-2.5 rounded-[3px] bg-gradient-to-r from-[#FF0091] to-[#FFAC00]" />
+            <span className="text-[17px] font-bold tracking-[-0.02em] text-[#101014]">BahiKhata</span>
+          </div> */}
 
-      {userRole === "admin" && (
-        <div className="flex justify-center mb-6">
-          <div className="bg-slate-200/50 p-1 rounded-xl inline-flex shadow-sm border border-slate-200">
-            <button
-              onClick={() => handleTabSwitch("customers")}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "customers"
-                ? "bg-white text-blue-700 shadow-sm border border-slate-200"
-                : "text-slate-500 hover:text-slate-700"
-                }`}
-            >
-              <Briefcase size={16} /> Receivables (Sales)
-            </button>
-            <button
-              onClick={() => handleTabSwitch("vendors")}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "vendors"
-                ? "bg-white text-purple-700 shadow-sm border border-slate-200"
-                : "text-slate-500 hover:text-slate-700"
-                }`}
-            >
-              <Building2 size={16} /> Payables (Purchases)
-            </button>
+          {isAdmin && (
+            <div className="flex gap-1 rounded-full bg-[#F1EDE5] p-1">
+              {[
+                { key: "customers", label: "Receivables", Icon: Briefcase },
+                { key: "vendors", label: "Payables", Icon: Building2 },
+              ].map(({ key, label, Icon }) => {
+                const active = activeTab === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleTabSwitch(key)}
+                    className={
+                      "flex items-center gap-[7px] whitespace-nowrap rounded-full px-4 py-[9px] text-[12.5px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4301C] " +
+                      (active
+                        ? "bg-[#FFFDF9] font-bold text-[#101014] shadow-[0_1px_3px_rgba(16,16,20,0.10)]"
+                        : "font-semibold text-[#6B6862]")
+                    }
+                  >
+                    <Icon size={15} className="opacity-80" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex items-center gap-[7px]">
+            {isAdmin && <NotificationMenu />}
+
+            {isAdmin && isPay && (
+              <Button
+                variant="success"
+                icon={FileSpreadsheet}
+                isLoading={isTdsLoading}
+                isSuccess={tdsDone}
+                onClick={handleDownloadTDS}
+                className="!px-[15px] !py-[10px] !text-[12.5px] !font-semibold"
+              >
+                {isTdsLoading ? "Generating" : tdsDone ? "Downloaded" : "TDS report"}
+              </Button>
+            )}
+
+            {isAdmin && (
+              <>
+                <Button variant="secondary" icon={ChartLine} iconOnly title="Audit log" onClick={() => router.push("/dashboard/audit")} />
+                <Button variant="secondary" icon={Users} iconOnly title="Add user" onClick={() => router.push("/dashboard/agents/create")} />
+              </>
+            )}
+            <Button variant="danger" icon={LogOut} iconOnly title="Log out" onClick={() => logout()} />
+
+            {isAdmin && (
+              <>
+                <span className="mx-[3px] h-[26px] w-px bg-[#E7E1D6]" />
+                <Button
+                  variant="primary"
+                  icon={Plus}
+                  onClick={() => router.push(isPay ? "/dashboard/vendors/create" : "/dashboard/customers/create")}
+                >
+                  {isPay ? "Add vendor" : "Onboard customer"}
+                </Button>
+              </>
+            )}
           </div>
         </div>
-      )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="relative w-full max-w-md">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        {/* Purpose of the page */}
+        {/* <div className="flex flex-wrap items-end justify-between gap-5 px-1.5 py-1">
+          <div>
+            <h1 className="m-0 text-[clamp(26px,2.6vw,34px)] font-bold tracking-[-0.035em] text-[#101014]">
+              {isPay ? "Payables ageing" : "Receivables ageing"}
+            </h1>
+            <p className="mt-[7px] max-w-[62ch] text-[14px] font-medium text-[#6B6862]">
+              {isPay
+                ? "What you owe suppliers, oldest first. Approve bills, release payments, open a purchase ledger."
+                : "Who owes you and for how long. Chase the 90+ column first, then open a ledger to record the payment."}
+            </p>
+          </div>
+          <span className="flex items-center gap-2 font-mono text-[12px] text-[#8A8780]">
+            <Calendar size={14} className="opacity-60" />
+            AGEING AS OF {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase()}
+          </span>
+        </div> */}
+
+        <div className="flex flex-wrap items-start gap-[18px]">
+          <SummaryRail
+            ageing={ageing}
+            noun={isPay ? "vendors" : "customers"}
+            label={isPay ? "OWED TO VENDORS" : "OWED TO YOU"}
+            isLoading={isTableLoading}
+            onChase={() => {
+              setOverdueOnly(true);
+              setSearchQuery("");
+            }}
           />
-          <input
-            type="text"
-            placeholder={activeTab === 'customers' ? "Search customers or managers..." : "Search vendors..."}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all font-medium shadow-sm text-slate-900"
-          />
-        </div>
 
-        <div className="flex items-center gap-3">
-          {userRole === "admin" && (
-            <>
-              {activeTab === "customers" ? (
-                <>
-                  <Button variant="primary" icon={Plus} onClick={() => router.push(`/dashboard/customers/create`)}>
-                    Onboard Customer
-                  </Button>
-                  <Button variant="secondary" icon={ChartLine} onClick={() => router.push(`/dashboard/audit`)}>
-                    Audit Log
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="secondary" icon={FileSpreadsheet} className="!text-emerald-700 !bg-emerald-50 hover:!bg-emerald-100 !border-emerald-200" onClick={handleDownloadTDS}>
-                    TDS Report
-                  </Button>
-                  <Button variant="primary" icon={Plus} className="!bg-purple-600 hover:!bg-purple-700" onClick={() => router.push(`/dashboard/vendors/create`)}>
-                    Add Vendor
-                  </Button>
-                </>
-              )}
+          <div className="flex min-w-0 flex-[3_1_640px] flex-col gap-[18px]">
+            {/* Search + filter */}
+            <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-[#E7E1D6] bg-[#FFFDF9] px-5 py-4 shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
+              <label className="flex min-w-0 flex-[1_1_220px] items-center gap-2.5 rounded-xl border border-[#E7E1D6] bg-[#F4F0E7] px-3.5 py-2.5 transition-colors focus-within:border-[#B4301C]">
+                <Search size={16} className="shrink-0 text-[#8A8780]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  disabled={isTableLoading}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={isPay ? "Search vendors" : "Search customers or managers"}
+                  className="w-full border-0 bg-transparent text-[13.5px] font-medium text-[#101014] outline-none placeholder:text-[#A29E96]"
+                />
+                {searchQuery && (
+                  <button type="button" onClick={() => setSearchQuery("")} title="Clear search">
+                    <X size={14} className="text-[#8A8780]" />
+                  </button>
+                )}
+              </label>
 
-              <Button variant="secondary" icon={Users} onClick={() => router.push(`/dashboard/agents/create`)}>
-                Add User
-              </Button>
-            </>
-          )}
-          <Button variant="danger" icon={LogOut} onClick={() => logout()} />
-          {userRole === "admin" && <NotificationMenu />}
+              <button
+                type="button"
+                disabled={isTableLoading}
+                onClick={() => setOverdueOnly((v) => !v)}
+                title="Show only accounts with dues past due date"
+                className={
+                  "flex items-center gap-[7px] whitespace-nowrap rounded-xl px-[15px] py-2.5 text-[12.5px] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4301C] disabled:cursor-not-allowed disabled:border-[#E7E1D6] disabled:bg-[#F1EDE5] disabled:text-[#A5A19A] " +
+                  (overdueOnly
+                    ? "border border-[#24231F] bg-[#24231F] font-bold text-[#FFFDF7]"
+                    : "border border-[#E7E1D6] bg-white font-semibold text-[#101014] hover:bg-[#F7F3EA]")
+                }
+              >
+                <Filter size={15} className="opacity-70" />
+                Overdue only
+              </button>
+            </div>
+
+            {isPay ? (
+              <VendorTable vendors={visibleVendors} isLoading={isVendorsLoading} />
+            ) : (
+              <CustomerTable
+                customers={visibleCustomers}
+                currentUserRole={userRole}
+                onRefresh={refreshCustomers}
+                isLoading={isCustomersLoading}
+              />
+            )}
+          </div>
         </div>
       </div>
-
-      {activeTab === "customers" ? (
-        isCustomersLoading ? (
-          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-3xl border border-slate-200 shadow-sm">
-            <Loader2 size={32} className="animate-spin text-blue-600 mb-4" />
-            <p className="text-slate-500 font-medium text-sm">Syncing Receivables...</p>
-          </div>
-        ) : (
-          <CustomerTable
-            customers={visibleCustomers}
-            currentUserRole={userRole}
-            onRefresh={refreshCustomers}
-          />
-        )
-      ) : (
-        isVendorsLoading ? (
-          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-3xl border border-slate-200 shadow-sm">
-            <Loader2 size={32} className="animate-spin text-purple-600 mb-4" />
-            <p className="text-slate-500 font-medium text-sm">Syncing Payables...</p>
-          </div>
-        ) : (
-          <VendorTable vendors={visibleVendors} />
-        )
-      )}
-    </DashboardLayout>
+    </div>
   );
 }
