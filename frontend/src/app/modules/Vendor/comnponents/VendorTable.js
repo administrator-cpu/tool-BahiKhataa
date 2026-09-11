@@ -26,6 +26,7 @@ function Bucket({ value, tone, weight = "font-semibold" }) {
 
 function RowSkeleton() {
   return (
+    
     <div className={`grid ${COLS} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[15px]`}>
       <i className="h-3 w-[62%] animate-pulse rounded-md bg-[#EFEBE2]" />
       {Array.from({ length: 5 }).map((_, i) => (
@@ -53,10 +54,10 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
   );
 
   return (
-    <div className="min-w-0 flex-[3_1_640px] overflow-hidden rounded-3xl border border-[#E7E1D6] bg-[#FFFDF9] shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
-      <div className="overflow-x-auto customScroller">
-        <div className="min-w-[940px]">
-          <div className={`grid ${COLS} gap-2.5 border-y border-[#EDE7DB] bg-[#F4F0E7] px-[22px] py-[11px]`}>
+    // <div className="min-w-0 flex-[3_1_640px] overflow-hidden rounded-3xl border border-[#E7E1D6] bg-[#FFFDF9] shadow-[0_1px_2px_rgba(16,16,20,0.05)]">
+<div className="customScroller max-h-[calc(100vh-230px)] min-h-[360px] overflow-auto overscroll-contain">
+  <div className="min-w-[940px]">
+    <div className={`sticky top-0 z-20 grid ${COLS} gap-2.5 border-y border-[#EDE7DB] bg-[#F4F0E7] px-[22px] py-[11px]`}>
             <span className={HEAD}>VENDOR / SUPPLIER</span>
             <span className="font-mono text-[10px] tracking-[0.11em] text-[#101014] text-right">TOTAL PAYABLE</span>
             <span className={`${HEAD} text-right`}>CURRENT</span>
@@ -134,9 +135,13 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
           )}
 
           <div
-            className={`grid ${COLS} items-center gap-2.5 border-t border-[#E3DCCC] bg-[#EFE9DC] px-[22px] py-[19px]`}
-            style={{ backgroundImage: WEAVE }}
-          >
+  className={`sticky bottom-0 z-20 grid ${COLS} items-center gap-2.5 border-t border-[#E3DCCC] bg-[#EFE9DC] px-[22px] py-[19px] shadow-[0_-1px_2px_rgba(16,16,20,0.05)]`}
+  style={{ backgroundImage: WEAVE }}
+>
+  <span className="font-mono text-[10px] tracking-[0.11em] text-[#6B6862]">
+    ALL VENDORS{!isLoading && safeVendors.length ? ` · ${safeVendors.length}` : ""}
+  </span>
+
             <span className="font-mono text-[10px] tracking-[0.11em] text-[#6B6862]">ALL VENDORS</span>
             <span className="text-right text-[15px] font-bold text-[#101014]">
               {isLoading ? "—" : safeFormatCurrency(totals.outstanding)}
@@ -157,6 +162,6 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
           </div>
         </div>
       </div>
-    </div>
+    // </div>
   );
 }
