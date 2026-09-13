@@ -3,7 +3,7 @@ import { protectInternalApps } from '../../middlewares/internalAuth.js';
 import {
   getExternalCustomerFinancials, getExternalFinancialsByName, getCustomerOutstandingByCrmId,
   getAllCustomersFinancials, syncHistoricalInvoices, reconcileCustomerLedger, auditCustomerLedger,
-  syncInvoiceFromInvoicingApp, cancelInvoiceFromInvoicingApp
+  syncInvoiceFromInvoicingApp, cancelInvoiceFromInvoicingApp, syncCreditNoteFromInvoicingApp
 } from '../integration/integration.controller.js';
 
 const router = express.Router()
@@ -14,6 +14,7 @@ router.use(protectInternalApps);
 router.get('/customers/financials/all', getAllCustomersFinancials);
 router.get('/customers/financials/search', getExternalFinancialsByName);
 router.post('/invoices/sync', syncInvoiceFromInvoicingApp);
+router.post('/webhook/credit-note', syncCreditNoteFromInvoicingApp);
 router.get('/ledger/audit/:customerId', auditCustomerLedger);
 router.delete('/invoices/sync/:invoiceNo', cancelInvoiceFromInvoicingApp);
 router.post('/ledger/fix/:customerId', reconcileCustomerLedger);

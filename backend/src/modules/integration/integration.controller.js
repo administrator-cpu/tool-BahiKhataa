@@ -1,6 +1,6 @@
 import Customer from '../customer/customer.model.js';
 import Ledger from '../ledger/ledger.model.js';
-import AppError from '../../utils/appError.js';
+import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 
@@ -565,14 +565,78 @@ export const cancelInvoiceFromInvoicingApp = catchAsync(async (req, res, next) =
     return res.status(200).json({ status: 'success', message: 'Invoice not found in ledger. Nothing to delete.' });
   }
 
-  if (log.amountPaid > 0 || (log.paymentsReceived && log.paymentsReceived.length > 0)) {
-    return next(new AppError('CRITICAL: Cannot delete this invoice from Bahi Khata. There are financial payments already allocated to this bill. Please remove the payments in Bahi Khata first.', 400));
+  if (log.amountPaid > 0 && log.paymentsReceived && log.paymentsReceived.length > 0) {
+    const customer = await Customer.findById(log.customer);
+
+    for (const alloc of log.paymentsReceived) {
+      const paymentLog = await Ledger.findById(alloc.paymentId);
+
+      if (paymentLog) {
+        paymentLog.allocations = (paymentLog.allocations || []).filter(
+          (a) => a.billId?.toString() !== log._id.toString()
+        );
+
+        paymentLog.unallocatedAmount = toWhole((paymentLog.unallocatedAmount || 0) + alloc.amountApplied);
+        await paymentLog.save();
+      }
+    }
+
+    if (customer) {
+      customer.availableAdvance = toWhole((customer.availableAdvance || 0) + log.amountPaid);
+      await customer.save();
+    }
   }
 
   await Ledger.findByIdAndDelete(log._id);
 
   return res.status(200).json({
     status: 'success',
-    message: `Invoice ${invoiceNo} successfully removed from Bahi Khata ledger.`
+    message: `Invoice ${invoiceNo} successfully removed. ${log.amountPaid > 0 ? `₹${log.amountPaid} has been moved to the Customer's Advance Wallet.` : ''}`
+  });
+});
+
+// ==========================================
+// 📥 WEBHOOK: RECEIVE CREDIT NOTE (CREDIT)
+// ==========================================
+export const syncCreditNoteFromInvoicingApp = catchAsync(async (req, res, next) => {
+  const { crmId, creditNoteNo, date, amount, description } = req.body;
+
+  if (!crmId || !creditNoteNo || amount === undefined || !date) {
+    return next(new AppError('Missing required fields: crmId, creditNoteNo, date, and amount are required.', 400));
+  }
+
+  const existingEntry = await Ledger.findOne({ invoiceNo: creditNoteNo.trim() });
+  if (existingEntry) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Credit Note already exists in Bahi Khata. Skipped duplicate creation.',
+      data: { log: existingEntry }
+    });
+  }
+
+  const customer = await Customer.findOne({ crmId: crmId.trim() });
+  if (!customer) {
+    return next(new AppError(`Sync Failed: No customer found in Bahi Khata with CRM ID '${crmId}'.`, 404));
+  }
+
+  const safeAmount = toWhole(amount);
+
+  const newEntry = await Ledger.create({
+    customer: customer._id,
+    date,
+    invoiceNo: creditNoteNo.trim(),
+    description: description || `Credit Note - ${creditNoteNo}`,
+    credit: safeAmount,
+    unallocatedAmount: safeAmount,
+    status: 'approved',
+  });
+
+  customer.availableAdvance = toWhole((customer.availableAdvance || 0) + safeAmount);
+  await customer.save();
+
+  return res.status(201).json({
+    status: 'success',
+    message: 'Credit Note successfully synced and added to Customer Advance Wallet.',
+    data: { log: newEntry }
   });
 });
