@@ -10,7 +10,8 @@ const invoicingClient = axios.create({
 });
 
 export const syncInvoicePaymentStatus = async (invoiceNo, paymentStatus, balanceDue, amountPaid, ledgerId) => {
-  if (!invoiceNo) return;
+  if (!invoiceNo) return { success: false, error: 'No invoice number provided' };
+
   try {
     await invoicingClient.patch(`/api/invoices/internal/${encodeURIComponent(invoiceNo)}/payment-status`, {
       paymentStatus,
@@ -18,10 +19,20 @@ export const syncInvoicePaymentStatus = async (invoiceNo, paymentStatus, balance
       amountPaid,
       ledgerId
     });
-    console.log(`Successfully synced invoice ${invoiceNo} status: ${paymentStatus}`);
-    return true;
+
+    return { success: true };
+
   } catch (error) {
-    console.error(`Failed to sync payment status for invoice ${invoiceNo}:`, error?.response?.data || error.message);
-    return false;
+    const errorMsg = error?.response?.data?.message || error?.response?.data?.error || error.message || 'Unknown network failure';
+
+    try {
+      await invoicingClient.post(`/api/invoices/internal/${encodeURIComponent(invoiceNo)}/payment-status/error`, {
+        error: `Ledger write failed: ${errorMsg}`
+      });
+    } catch (fallbackError) {
+      console.error(`CRITICAL: Could not reach error logging endpoint:`, fallbackError.message);
+    }
+
+    return { success: false, error: errorMsg };
   }
 };

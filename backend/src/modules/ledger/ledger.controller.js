@@ -599,6 +599,56 @@ export const getLedgerEntryDetails = catchAsync(async (req, res, next) => {
 });
 
 // ==========================================
+// 🔄 BULK RECONCILIATION: SYNC ALL INVOICES
+// ==========================================
+export const bulkSyncInvoiceStatuses = catchAsync(async (req, res, next) => {
+  const invoicesToSync = await Ledger.find({
+    status: 'approved',
+    credit: { $gt: 0 },
+    invoiceNo: { $ne: null, $ne: '' }
+  }).select('invoiceNo paymentStatus balanceDue amountPaid');
+
+  if (!invoicesToSync || invoicesToSync.length === 0) {
+    return res.status(200).json({ status: 'success', message: 'No invoices found to sync.' });
+  }
+
+  const report = {
+    totalProcessed: invoicesToSync.length,
+    successCount: 0,
+    failCount: 0,
+    failures: []
+  };
+
+  for (const bill of invoicesToSync) {
+    const syncResult = await syncInvoicePaymentStatus(
+      bill.invoiceNo,
+      bill.paymentStatus,
+      bill.balanceDue,
+      bill.amountPaid,
+      bill._id
+    );
+
+    if (syncResult.success) {
+      report.successCount++;
+    } else {
+      report.failCount++;
+      report.failures.push({
+        invoiceNo: bill.invoiceNo,
+        reason: syncResult.error
+      });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: `Bulk sync completed. ${report.successCount} succeeded, ${report.failCount} failed.`,
+    data: { report }
+  });
+});
+
+// ==========================================
 // 🧹 ONE-TIME DATABASE SANITIZATION SCRIPT
 // ==========================================
 export const sanitizeDatabaseNumbers = catchAsync(async (req, res, next) => {
