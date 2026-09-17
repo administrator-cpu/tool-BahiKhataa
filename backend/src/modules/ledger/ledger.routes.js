@@ -9,17 +9,20 @@ import {
   getPendingQueue,
   getLedgerEntryDetails,
   sanitizeDatabaseNumbers,
-  exportFinancialReport
+  exportFinancialReport,
+  bulkSyncInvoiceStatuses
 } from './ledger.controller.js';
 import { protect, restrictTo } from '../../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
 router.use(protect);
+
 router.get('/pending', restrictTo('admin',"employee"), getPendingQueue);
 router.post('/payment', restrictTo('employee', 'admin'), addPendingPayment);
 router.get('/database/sanitize', sanitizeDatabaseNumbers);
 router.post('/export/financial-report', exportFinancialReport);
+router.post('/webhook/bulk-sync-invoices', restrictTo('admin'), bulkSyncInvoiceStatuses);
 router.patch('/:id', restrictTo('employee', 'admin'), editLedgerEntry);
 router.delete('/:id', restrictTo('employee','admin'), deleteLedgerEntry);
 router.patch('/review/:id', restrictTo('admin'), reviewPendingLog);
