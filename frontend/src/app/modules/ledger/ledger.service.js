@@ -10,8 +10,8 @@ export const ledgerService = {
       bankName: paymentData.bank || 'Direct',
       utrReference: paymentData.utr,
       remarks: paymentData.remarks,
-      billId: paymentData.billId, 
-      isUsingAdvance: paymentData.isUsingAdvance 
+      billId: paymentData.billId,
+      isUsingAdvance: paymentData.isUsingAdvance
     };
     return await apiClient.post('/ledger/payment', payload);
   },
@@ -28,7 +28,7 @@ export const ledgerService = {
     const { data } = await apiClient.get(`/ledger/${customerId}/dashboard`);
     return data;
   },
-  
+
   getPendingQueue: async (managerId) => {
     return await apiClient.get(`/ledger/pending?manager=${managerId}`);
   },
@@ -42,23 +42,29 @@ export const ledgerService = {
     return await apiClient.get(`/ledger/pending`);
   },
   getLedgerEntryDetails: async (id) => {
-    const {data}= await apiClient.get(`/ledger/${id}`);
+    const { data } = await apiClient.get(`/ledger/${id}`);
     return data
   },
   assignManager: async (customerId, managerId) => {
     return await apiClient.patch(`/customers/${customerId}/assign-manager`, { managerId });
   },
-  downloadExcel: async (customerId) => {
-     const data = await apiClient.get(`/customers/${customerId}/excel`, { responseType: 'blob' });
-     return data
+  downloadExcel: async (customerId, params = {}) => {
+    const data = await apiClient.get(`/customers/${customerId}/excel`, {
+      params,
+      responseType: 'blob'
+    });
+    return data;
   },
-  downloadPDF: async (customerId) => {
-    return await apiClient.get(`/customers/${customerId}/pdf`, { responseType: 'blob' });
+  downloadPDF: async (customerId, params = {}) => {
+    return await apiClient.get(`/customers/${customerId}/pdf`, {
+      params,
+      responseType: 'blob'
+    });
   },
   exportFinancialReport: async (customerIds = []) => {
     return await apiClient.post(
-      '/ledger/export/financial-report', 
-      { customerIds }, 
+      '/ledger/export/financial-report',
+      { customerIds },
       { responseType: 'blob' }
     );
   }

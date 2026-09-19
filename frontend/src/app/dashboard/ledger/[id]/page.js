@@ -32,6 +32,9 @@ export default function CustomerLedger() {
   const [rejectModal, setRejectModal] = useState({ isOpen: false, logId: null });
   const [employees, setEmployees] = useState([]);
 
+  const [exportModal, setExportModal] = useState({ isOpen: false, type: 'excel' });
+  const [exportDates, setExportDates] = useState({ fromDate: '', toDate: '' });
+
   const {
     isLoading,
     customerProfile,
@@ -182,39 +185,40 @@ export default function CustomerLedger() {
     ).catch(() => { });
   };
 
-  const handleDownloadExcel = async () => {
+  const executeDownload = async (isFull) => {
+    const { type } = exportModal;
+    const params = isFull ? {} : { fromDate: exportDates.fromDate, toDate: exportDates.toDate };
+
+    if (!isFull && (!params.fromDate || !params.toDate)) {
+      return alert("Please select both a Start Date and End Date for a filtered download.");
+    }
+
     await execute(
       async () => {
-        const response = await ledgerService.downloadExcel(customerId);
-        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const response = type === 'excel'
+          ? await ledgerService.downloadExcel(customerId, params)
+          : await ledgerService.downloadPDF(customerId, params);
+
+        const blobType = type === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: blobType }));
+
         const link = document.createElement('a');
         link.href = url;
         const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
-        link.setAttribute('download', `${safeName}_Ledger.xlsx`);
+        const dateSuffix = isFull ? 'Full' : `${params.fromDate}_to_${params.toDate}`;
+
+        link.setAttribute('download', `${safeName}_Ledger_${dateSuffix}.${type === 'excel' ? 'xlsx' : 'pdf'}`);
         document.body.appendChild(link);
         link.click();
         link.remove();
+
+        setExportModal({ isOpen: false, type: 'excel' });
+        setExportDates({ fromDate: '', toDate: '' });
       },
-      { loadingMessage: 'Generating Excel...', successMessage: 'Excel downloaded!' }
+      { loadingMessage: `Generating ${type.toUpperCase()}...`, successMessage: `${type.toUpperCase()} downloaded!` }
     ).catch(() => { });
   };
 
-  const handleDownloadPDF = async () => {
-    await execute(
-      async () => {
-        const response = await ledgerService.downloadPDF(customerId);
-        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
-        const link = document.createElement('a');
-        link.href = url;
-        const safeName = customerProfile.company.replace(/[^a-zA-Z0-9]/g, '_');
-        link.setAttribute('download', `${safeName}_Ledger.pdf`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      },
-      { loadingMessage: 'Generating PDF...', successMessage: 'PDF downloaded!' }
-    ).catch(() => { });
-  };
   const unpaidInvoices = ledgerData.filter(row => row.debit > 0 && row.balanceDue > 0 && row.status === 'approved');
 
   const handlePayClick = (row) => {
@@ -341,13 +345,13 @@ export default function CustomerLedger() {
             {/* Export Actions */}
             <div className="flex items-center gap-2 mt-1">
               <button
-                onClick={handleDownloadExcel}
+                onClick={() => setExportModal({ isOpen: true, type: 'excel' })}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
               >
                 <FileSpreadsheet size={16} /> Excel
               </button>
               <button
-                onClick={handleDownloadPDF}
+                onClick={() => setExportModal({ isOpen: true, type: 'pdf' })}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-xl text-xs font-bold transition-colors shadow-sm"
               >
                 <FileDown size={16} /> PDF
@@ -405,6 +409,79 @@ export default function CustomerLedger() {
           agingTotals={agingTotals}
         />
       </div>
+
+      {/* 🚨 EXPORT DATE PICKER MODAL */}
+      {exportModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-slate-800 mb-5 flex items-center gap-2">
+              {exportModal.type === 'excel' ? <FileSpreadsheet className="text-emerald-600" /> : <FileDown className="text-rose-600" />}
+              Export {exportModal.type === 'excel' ? 'Excel' : 'PDF'}
+            </h3>
+
+            <div className="space-y-5">
+              {/* Option 1: Full Download */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <p className="text-sm font-bold text-slate-800 mb-2">Option 1: Complete History</p>
+                <button
+                  onClick={() => executeDownload(true)}
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl font-bold text-sm transition-colors shadow-sm"
+                >
+                  Download Full Ledger
+                </button>
+              </div>
+
+              {/* Option 2: Date Filter */}
+              <div className={`p-4 rounded-2xl border ${exportModal.type === 'excel' ? 'bg-emerald-50/50 border-emerald-100' : 'bg-rose-50/50 border-rose-100'}`}>
+                <p className="text-sm font-bold text-slate-800 mb-3">Option 2: Filter by Date</p>
+
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">From Date</label>
+                    <input
+                      type="date"
+                      value={exportDates.fromDate}
+                      onChange={(e) => setExportDates(p => ({ ...p, fromDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">To Date</label>
+                    <input
+                      type="date"
+                      value={exportDates.toDate}
+                      onChange={(e) => setExportDates(p => ({ ...p, toDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => executeDownload(false)}
+                  disabled={isSubmitting}
+                  className={`w-full py-2.5 rounded-xl font-bold text-sm transition-colors shadow-sm ${exportModal.type === 'excel'
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-rose-600 text-white hover:bg-rose-700'
+                    }`}
+                >
+                  Download Filtered {exportModal.type === 'excel' ? 'Excel' : 'PDF'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setExportModal({ isOpen: false, type: 'excel' });
+                setExportDates({ fromDate: '', toDate: '' });
+              }}
+              className="w-full mt-4 py-2.5 bg-transparent text-slate-500 hover:text-slate-800 rounded-xl font-bold text-sm transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
