@@ -16,7 +16,7 @@ export const getCRMProfileForCreation = catchAsync(async (req, res, next) => {
     const addressOptions = (crmData.billingProfile || []).map(profile => {
       const { street, city, state, pincode } = profile.address || {};
       const formattedAddress = [street, city, state, pincode].filter(Boolean).join(', ');
-      
+
       return {
         label: profile.label || 'Default Location',
         gstNumber: profile.gstNumber || '',
@@ -189,7 +189,7 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
         managerName: customer.manager ? customer.manager.name : "Unassigned",
         managerId: customer.manager ? customer.manager._id : "",
         aging: aging,
-        isCrmLinked: !!customer.crmId, 
+        isCrmLinked: !!customer.crmId,
         crmId: customer.crmId || null
       };
     }),
@@ -233,7 +233,7 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
         managerName: customer.manager ? customer.manager.name : "Unassigned",
         managerId: customer.manager ? customer.manager._id : "",
         aging: aging,
-        isCrmLinked: !!customer.crmId, 
+        isCrmLinked: !!customer.crmId,
         crmId: customer.crmId || null
       };
     })
@@ -247,18 +247,49 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
   });
 });
 
-/* Download Customer Ledger Excel */
+// ==========================================
+// 📊 EXPORT CUSTOMER LEDGER (EXCEL)
+// ==========================================
 export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
+  const { fromDate, toDate } = req.query; // 🚨 Added Date Params
 
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
 
-  const ledgers = await Ledger.find({
+  let query = {
     customer: customerId,
     status: 'approved',
     isUsingAdvance: { $ne: true }
-  }).sort({ date: 1 });
+  };
+  let openingBalance = 0;
+
+  if (fromDate) {
+    query.date = { $gte: new Date(fromDate) };
+
+    const prevLogs = await Ledger.find({
+      customer: customerId,
+      status: 'approved',
+      isUsingAdvance: { $ne: true },
+      date: { $lt: new Date(fromDate) }
+    });
+
+    let prevDebit = 0;
+    let prevCredit = 0;
+    prevLogs.forEach(log => {
+      prevDebit += (log.debit || 0);
+      prevCredit += (log.credit || 0);
+    });
+
+    openingBalance = prevDebit - prevCredit;
+  }
+
+  if (toDate) {
+    query.date = query.date || {};
+    query.date.$lte = new Date(toDate);
+  }
+
+  const ledgers = await Ledger.find(query).sort({ date: 1 });
 
   const workbook = new excel.Workbook();
   workbook.creator = 'BahiKhata App';
@@ -266,52 +297,103 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
 
   worksheet.columns = [
     { header: 'Date', key: 'date', width: 15 },
-    { header: 'Description', key: 'description', width: 40 },
+    { header: 'Particulars', key: 'description', width: 45 },
     { header: 'Invoice No', key: 'invoiceNo', width: 15 },
-    { header: 'Debit (₹)', key: 'debit', width: 15 },
-    { header: 'Credit (₹)', key: 'credit', width: 15 }
+    { header: 'Debit (₹)', key: 'debit', width: 18 },
+    { header: 'Credit (₹)', key: 'credit', width: 18 }
   ];
 
   worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  worksheet.getRow(1).fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF1F2937' }
-  };
+  worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } };
   worksheet.getRow(1).alignment = { horizontal: 'center' };
 
+  let totalDebit = 0;
+  let totalCredit = 0;
+
+  if (fromDate) {
+    let opDebit = '';
+    let opCredit = '';
+
+    if (openingBalance > 0) {
+      totalDebit += openingBalance;
+      opDebit = openingBalance;
+    } else if (openingBalance < 0) {
+      totalCredit += Math.abs(openingBalance);
+      opCredit = Math.abs(openingBalance);
+    } else {
+      opDebit = 0;
+    }
+
+    const opRow = worksheet.addRow({
+      date: new Date(fromDate).toLocaleDateString('en-IN'),
+      description: 'Opening Balance',
+      invoiceNo: '',
+      debit: opDebit,
+      credit: opCredit
+    });
+    opRow.font = { bold: true };
+  }
+
   ledgers.forEach((log) => {
+    const debitAmt = log.debit || 0;
+    const creditAmt = log.credit || 0;
+
+    totalDebit += debitAmt;
+    totalCredit += creditAmt;
+
+    let particulars = log.description || '-';
+    if (log.debit > 0 && log.invoiceNo) {
+      particulars = `${log.description} - ${log.invoiceNo}`;
+    } else if (log.credit > 0 && log.bankInfo?.bankName) {
+      particulars = `Receipt By ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(' + log.bankInfo.utrReference + ')' : ''}`;
+    }
+
     const row = worksheet.addRow({
       date: new Date(log.date).toLocaleDateString('en-IN'),
-      description: log.description || '-',
+      description: particulars,
       invoiceNo: log.invoiceNo || '-',
-      debit: log.debit > 0 ? log.debit : '',
-      credit: log.credit > 0 ? log.credit : ''
+      debit: debitAmt > 0 ? debitAmt : '',
+      credit: creditAmt > 0 ? creditAmt : ''
     });
 
     row.getCell('debit').alignment = { horizontal: 'right' };
     row.getCell('credit').alignment = { horizontal: 'right' };
-
   });
 
-  res.setHeader(
-    'Content-Type',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  );
+  worksheet.addRow([]); // Blank spacer row
 
+  const balance = totalDebit - totalCredit;
+  const isDebitBalance = balance > 0;
+
+  const totalRow = worksheet.addRow({ description: 'Total', debit: totalDebit, credit: totalCredit });
+  totalRow.font = { bold: true };
+
+  if (balance !== 0) {
+    const closingRow = worksheet.addRow({
+      description: isDebitBalance ? 'By Closing Balance' : 'To Closing Balance',
+      debit: isDebitBalance ? '' : Math.abs(balance),
+      credit: isDebitBalance ? Math.abs(balance) : ''
+    });
+    closingRow.font = { bold: true, color: { argb: 'FFD97706' } }; // Highlight closing balance slightly
+  }
+
+  const grandTotal = Math.max(totalDebit, totalCredit);
+  const grandTotalRow = worksheet.addRow({ description: 'Grand Total', debit: grandTotal, credit: grandTotal });
+  grandTotalRow.font = { bold: true };
+  grandTotalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   const safeCompanyName = customer.companyName.replace(/[^a-zA-Z0-9]/g, '_');
-  const fileName = `Ledger_${safeCompanyName}.xlsx`;
-
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename=${fileName}`
-  );
+  res.setHeader('Content-Disposition', `attachment; filename=Ledger_${safeCompanyName}.xlsx`);
 
   await workbook.xlsx.write(res);
   res.end();
 });
 
-/* Download Customer Ledger PDF */
+
+// ==========================================
+// 📄 EXPORT CUSTOMER LEDGER (PDF)
+// ==========================================
 export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   const { fromDate, toDate } = req.query;
@@ -519,7 +601,7 @@ export const previewCRMMatch = catchAsync(async (req, res, next) => {
 
   try {
     const searchRes = await crmClient.get(`/api/crm/customers`, {
-      params: { search: customer.companyName } 
+      params: { search: customer.companyName }
     });
 
     const crmCustomers = searchRes.data.customers;
@@ -534,7 +616,7 @@ export const previewCRMMatch = catchAsync(async (req, res, next) => {
 
     const crmId = crmCustomers[0]._id;
     const profileRes = await crmClient.get(`/api/crm/customers/${crmId}`);
-    
+
     return res.status(200).json({
       status: 'success',
       matchFound: true,

@@ -598,33 +598,50 @@ export const getLedgerEntryDetails = catchAsync(async (req, res, next) => {
   });
 });
 
-// ==========================================
-// 🔄 BULK RECONCILIATION: SYNC ALL INVOICES
-// ==========================================
+// ====================================================
+// 🔄 BULK RECONCILIATION: SYNC INVOICES (BATCHED)
+// ====================================================
 export const bulkSyncInvoiceStatuses = catchAsync(async (req, res, next) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const skip = parseInt(req.query.skip) || 0;
+
   const invoicesToSync = await Ledger.find({
     status: 'approved',
-    credit: { $gt: 0 },
-    invoiceNo: { $ne: null, $ne: '' }
-  }).select('invoiceNo paymentStatus balanceDue amountPaid');
+    debit: { $gt: 0 },
+    invoiceNo: {
+      $nin: [null, '', 'NA', 'N/A', 'na', 'n/a', '-', ' '], $regex: /^DL\/26-27\/(07|08|09)/i
+    }
+  })
+    .select('invoiceNo paymentStatus balanceDue amountPaid')
+    .skip(skip)
+    .limit(limit);
 
   if (!invoicesToSync || invoicesToSync.length === 0) {
-    return res.status(200).json({ status: 'success', message: 'No invoices found to sync.' });
+    return res.status(200).json({
+      status: 'success',
+      message: 'No more invoices found to sync.',
+      data: { report: { totalProcessed: 0, nextSkip: null } }
+    });
   }
 
   const report = {
     totalProcessed: invoicesToSync.length,
     successCount: 0,
     failCount: 0,
-    failures: []
+    failures: [],
+    nextSkip: skip + limit
   };
 
   for (const bill of invoicesToSync) {
+    const safeAmountPaid = Number(bill.amountPaid) || 0;
+    const safeBalanceDue = Number(bill.balanceDue) || 0;
+    const safePaymentStatus = bill.paymentStatus || 'Unpaid';
+
     const syncResult = await syncInvoicePaymentStatus(
       bill.invoiceNo,
-      bill.paymentStatus,
-      bill.balanceDue,
-      bill.amountPaid,
+      safePaymentStatus,
+      safeBalanceDue,
+      safeAmountPaid,
       bill._id
     );
 
@@ -643,7 +660,7 @@ export const bulkSyncInvoiceStatuses = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: 'success',
-    message: `Bulk sync completed. ${report.successCount} succeeded, ${report.failCount} failed.`,
+    message: `Batch sync completed for invoices ${skip + 1} to ${skip + invoicesToSync.length}.`,
     data: { report }
   });
 });
