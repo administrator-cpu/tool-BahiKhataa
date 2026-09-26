@@ -10,7 +10,7 @@ import { purchaseLedgerService } from "../purchaseLedger.service";
 const BANK_OPTIONS = ["Kotak Mahindra Bank", "YesBank", "Credit Card", "Payment Gateway", "HDFC", "Cash", "Other"];
 
 export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSuccess, availableAdvance = 0, editingLog, onCancelEdit }) {
-  const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment
+  const [activeTab, setActiveTab] = useState("credit"); // 'credit' = Bill, 'debit' = Payment, 'tds' = TDS Deduction
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [isCustomProduct, setIsCustomProduct] = useState(false);
@@ -62,7 +62,9 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
   useEffect(() => {
     if (editingLog) {
       const isBill = editingLog.credit > 0;
-      setActiveTab(isBill ? "credit" : "debit");
+      const isTds = editingLog.bankInfo?.bankName === "TDS Deduction"; // 🚨 Auto-detect TDS edit
+      setActiveTab(isBill ? "credit" : isTds ? "tds" : "debit");
+
       setFormData({
         date: editingLog.date ? new Date(editingLog.date).toISOString().split("T")[0] : "",
         description: editingLog.description || "",
@@ -71,7 +73,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         productType: editingLog.productType || "",
         baseAmount: editingLog.baseAmount || editingLog.credit || "",
         totalAmount: editingLog.totalAmount || "",
-        tdsHead: editingLog.tdsHead || "",
+        tdsHead: isTds ? (editingLog.bankInfo?.utrReference || "") : (editingLog.tdsHead || ""), // 🚨 Map TDS Head correctly
         tdsPercentage: editingLog.tdsPercentage || "",
         debit: editingLog.debit || "",
         bankName: editingLog.bankInfo?.bankName || "",
@@ -87,7 +89,8 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         setIsCustomProduct(false);
       }
 
-      if (editingLog.tdsHead && !["194J", "194I", "194C", "194H"].includes(editingLog.tdsHead)) {
+      const checkTds = isTds ? editingLog.bankInfo?.utrReference : editingLog.tdsHead;
+      if (checkTds && !["194J", "194I", "194C", "194H"].includes(checkTds)) {
         setIsCustomTds(true);
       } else {
         setIsCustomTds(false);
@@ -104,6 +107,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
   const previewTdsPct = Number(formData.tdsPercentage) || 0;
   const previewTdsAmount = previewBase * (previewTdsPct / 100);
   const previewPayable = previewTotal - previewTdsAmount;
+
   const allocations = formData.allocations || [];
   const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amountApplied || 0), 0);
   const paymentAmount = Number(formData.debit || 0);
@@ -140,13 +144,27 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
         .filter((a) => Number(a.amountApplied) > 0)
         .map((a) => ({ billId: a.billId, amountApplied: Number(a.amountApplied) }));
 
+      // 🚨 AUTOMATIC TDS FORMATTING
+      let finalBankName = formData.bankName;
+      let finalUtr = formData.utrReference;
+      let finalDescription = formData.description;
+
+      if (activeTab === "tds") {
+        finalBankName = "TDS Deduction";
+        finalUtr = formData.tdsHead || "TDS-ADJ";
+        if (!finalDescription) {
+          finalDescription = `Separate TDS Deduction under ${formData.tdsHead || 'Custom Head'}`;
+        }
+      }
+
       const payload = {
         ...formData,
+        description: finalDescription,
         vendor: vendorId,
         allocations: sanitizedAllocations,
         bankInfo: {
-          bankName: formData.bankName,
-          utrReference: formData.utrReference,
+          bankName: finalBankName,
+          utrReference: finalUtr,
         },
       };
 
@@ -173,15 +191,17 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
 
   const onSubmit = (e) => {
     e.preventDefault();
-    if (activeTab === "debit" && unallocatedAmount > 0) {
+    if ((activeTab === "debit" || activeTab === "tds") && unallocatedAmount > 0) {
       setShowAdvanceModal(true);
       return;
     }
     executeSubmit();
   };
 
+  // 🚨 UI FLAGS
   const isBillTab = activeTab === "credit";
   const isPaymentTab = activeTab === "debit";
+  const isTdsTab = activeTab === "tds";
   const showBankDetails = isPaymentTab && !formData.isUsingAdvance;
 
   return (
@@ -193,13 +213,14 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
       </div>
 
       <form onSubmit={onSubmit} className="p-6">
-        {/* Toggle Switch */}
-        <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl mb-6">
+
+        {/* 🚨 3-WAY TOGGLE SWITCH */}
+        <div className="flex flex-col sm:flex-row p-1 bg-slate-100 border border-slate-200 rounded-xl mb-6 gap-1">
           <button
             type="button"
             disabled={!!editingLog}
             onClick={() => handleTabChange("credit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${isBillTab ? "bg-white text-orange-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${activeTab === "credit" ? "bg-white text-orange-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
               }`}
           >
             <ArrowDownRight size={16} /> Supplier Bill (Cr)
@@ -207,10 +228,18 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
           <button
             type="button"
             onClick={() => handleTabChange("debit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${isPaymentTab ? "bg-white text-emerald-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${activeTab === "debit" ? "bg-white text-emerald-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
               }`}
           >
             <ArrowUpRight size={16} /> Payment Out (Dr)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTabChange("tds")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all ${activeTab === "tds" ? "bg-white text-rose-600 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700"
+              }`}
+          >
+            <Receipt size={16} /> TDS Deduction (Dr)
           </button>
         </div>
 
@@ -281,8 +310,8 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
           <InputField
             label="Description"
             name="description"
-            required
-            placeholder={isBillTab ? "e.g. Raw Material Purchase" : "e.g. Bank Transfer"}
+            required={!isTdsTab}
+            placeholder={isBillTab ? "e.g. Raw Material Purchase" : isTdsTab ? "e.g. Separate TDS Deduction" : "e.g. Bank Transfer"}
             value={formData.description}
             onChange={onChange}
           />
@@ -350,6 +379,8 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
                         <option value="">Select TDS Head</option>
                         <option value="194J">194J</option>
                         <option value="194I">194I</option>
+                        <option value="194C">194C</option>
+                        <option value="194H">194H</option>
                         <option value="Custom">Others (Type manually)</option>
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
@@ -396,6 +427,72 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
             </div>
           )}
 
+          {/* 🚨 TDS TAB INPUTS */}
+          {isTdsTab && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 p-4 bg-rose-50/50 border border-rose-100 rounded-2xl">
+              <InputField
+                label="TDS Amount (Debit) ₹"
+                type="number"
+                name="debit"
+                placeholder="0.00"
+                required
+                value={formData.debit}
+                onChange={onChange}
+                className="font-bold text-rose-600 text-lg"
+              />
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    TDS Head
+                  </label>
+                  {isCustomTds && (
+                    <button type="button" onClick={() => { setIsCustomTds(false); setFormData(p => ({ ...p, tdsHead: "" })) }} className="text-[10px] font-bold text-rose-600 hover:underline hover:cursor-pointer">
+                      Back to List
+                    </button>
+                  )}
+                </div>
+                {isCustomTds ? (
+                  <input
+                    type="text"
+                    name="tdsHead"
+                    value={formData.tdsHead}
+                    onChange={onChange}
+                    required
+                    placeholder="Type custom TDS Head..."
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                ) : (
+                  <div className="relative">
+                    <select
+                      name="tdsHead"
+                      value={formData.tdsHead}
+                      required
+                      onChange={(e) => {
+                        if (e.target.value === "Custom") {
+                          setIsCustomTds(true);
+                          setFormData(prev => ({ ...prev, tdsHead: "" }));
+                        } else {
+                          onChange(e);
+                        }
+                      }}
+                      className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-rose-500 appearance-none cursor-pointer"
+                    >
+                      <option value="">Select TDS Head</option>
+                      <option value="194J">194J</option>
+                      <option value="194I">194I</option>
+                      <option value="194C">194C</option>
+                      <option value="194H">194H</option>
+                      <option value="Custom">Others (Type manually)</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 🚨 PAYMENT TAB INPUTS */}
           {isPaymentTab && (
             <>
               <InputField
@@ -427,86 +524,86 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
                   </div>
                 </label>
               )}
-
-              {/* Invoice Allocation List */}
-              {unpaidBills.length > 0 && (
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mt-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                      <Receipt size={16} className="text-purple-600" /> Clear Supplier Bills
-                    </h3>
-                    <div className="text-xs font-bold text-slate-500">
-                      Unallocated: <span className={unallocatedAmount > 0 ? "text-emerald-600" : ""}>{safeFormatCurrency(unallocatedAmount)}</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto customScroller pr-2">
-                    {unpaidBills.map((bill) => {
-                      const billId = bill._id || bill.id;
-                      const allocatedObj = allocations.find((a) => a.billId === billId);
-                      const isSelected = !!allocatedObj;
-                      return (
-                        <div key={billId} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${isSelected ? "bg-white border-purple-300 shadow-sm" : "bg-transparent border-slate-200"}`}>
-                          <label className="flex items-center gap-3 cursor-pointer flex-1">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => handleAllocationToggle(bill, e.target.checked)}
-                              className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
-                            />
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">
-                                Bill #{bill.invoiceNo || "N/A"} <span className="text-xs font-normal text-slate-500">({new Date(bill.date).toLocaleDateString()})</span>
-                              </p>
-                              <p className="text-xs font-medium text-orange-600">Owe: {safeFormatCurrency(bill.balanceDue)}</p>
-                            </div>
-                          </label>
-                          {isSelected && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-500">Pay: ₹</span>
-                              <input
-                                type="number"
-                                value={allocatedObj.amountApplied || ""}
-                                onChange={(e) => handleAllocationAmountChange(billId, e.target.value)}
-                                onWheel={(e) => e.target.blur()}
-                                className="w-24 px-2 py-1 text-sm font-bold text-right border border-purple-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                max={bill.balanceDue}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Bank Details */}
-              {showBankDetails && (
-                <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Landmark size={12} /> Bank / Mode
-                    </label>
-                    <div className="relative">
-                      <select
-                        name="bankName"
-                        value={formData.bankName}
-                        onChange={onChange}
-                        required={isPaymentTab}
-                        className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
-                      >
-                        <option value="" disabled>Select Bank</option>
-                        {BANK_OPTIONS.map((bank) => (
-                          <option key={bank} value={bank}>{bank}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                    </div>
-                  </div>
-                  <InputField icon={Hash} label="UTR / Ref" name="utrReference" placeholder="Transfer ID" value={formData.utrReference} onChange={onChange} required={isPaymentTab} />
-                </div>
-              )}
             </>
+          )}
+
+          {/* 🚨 SHARED ALLOCATION LIST (For Payments & TDS) */}
+          {(isPaymentTab || isTdsTab) && unpaidBills.length > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mt-2">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                  <Receipt size={16} className="text-purple-600" /> Apply to Supplier Bills
+                </h3>
+                <div className="text-xs font-bold text-slate-500">
+                  Unallocated: <span className={unallocatedAmount > 0 ? "text-emerald-600" : ""}>{safeFormatCurrency(unallocatedAmount)}</span>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto customScroller pr-2">
+                {unpaidBills.map((bill) => {
+                  const billId = bill._id || bill.id;
+                  const allocatedObj = allocations.find((a) => a.billId === billId);
+                  const isSelected = !!allocatedObj;
+                  return (
+                    <div key={billId} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${isSelected ? "bg-white border-purple-300 shadow-sm" : "bg-transparent border-slate-200"}`}>
+                      <label className="flex items-center gap-3 cursor-pointer flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => handleAllocationToggle(bill, e.target.checked)}
+                          className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
+                        />
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">
+                            Bill #{bill.invoiceNo || "N/A"} <span className="text-xs font-normal text-slate-500">({new Date(bill.date).toLocaleDateString()})</span>
+                          </p>
+                          <p className="text-xs font-medium text-orange-600">Owe: {safeFormatCurrency(bill.balanceDue)}</p>
+                        </div>
+                      </label>
+                      {isSelected && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-500">Apply: ₹</span>
+                          <input
+                            type="number"
+                            value={allocatedObj.amountApplied || ""}
+                            onChange={(e) => handleAllocationAmountChange(billId, e.target.value)}
+                            onWheel={(e) => e.target.blur()}
+                            className="w-24 px-2 py-1 text-sm font-bold text-right border border-purple-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            max={bill.balanceDue}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 🚨 BANK DETAILS (Only for Payment Tab) */}
+          {showBankDetails && (
+            <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Landmark size={12} /> Bank / Mode
+                </label>
+                <div className="relative">
+                  <select
+                    name="bankName"
+                    value={formData.bankName}
+                    onChange={onChange}
+                    required={isPaymentTab}
+                    className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer"
+                  >
+                    <option value="" disabled>Select Bank</option>
+                    {BANK_OPTIONS.map((bank) => (
+                      <option key={bank} value={bank}>{bank}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                </div>
+              </div>
+              <InputField icon={Hash} label="UTR / Ref" name="utrReference" placeholder="Transfer ID" value={formData.utrReference} onChange={onChange} required={isPaymentTab} />
+            </div>
           )}
 
           <InputField icon={FileText} label="Remarks (Internal)" name="remarks" placeholder="Optional notes..." value={formData.remarks} onChange={onChange} />
@@ -534,7 +631,7 @@ export default function PurchaseLedgerForm({ vendorId, unpaidBills = [], onSucce
               </div>
               <h3 className="text-xl font-black text-slate-900 mb-2">Unallocated Funds Detected</h3>
               <p className="text-slate-500 text-sm mb-4">
-                You made a payment of <strong>{safeFormatCurrency(paymentAmount)}</strong>, but only allocated <strong>{safeFormatCurrency(totalAllocated)}</strong> to specific bills.
+                You made a {activeTab === 'tds' ? 'TDS Deduction' : 'payment'} of <strong>{safeFormatCurrency(paymentAmount)}</strong>, but only allocated <strong>{safeFormatCurrency(totalAllocated)}</strong> to specific bills.
               </p>
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6">
                 <p className="text-amber-800 text-sm font-bold">

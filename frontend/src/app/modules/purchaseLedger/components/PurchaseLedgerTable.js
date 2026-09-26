@@ -144,7 +144,7 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                                   {row.description}
                                   {(row.invoiceNo || row.bankInfo?.utrReference) && (
                                     <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 uppercase">
-                                      {row.invoiceNo ? 'INV' : 'UTR'}: {row.invoiceNo || row.bankInfo?.utrReference}
+                                      {row.invoiceNo ? 'INV' : (row.bankInfo?.bankName === 'TDS Deduction' ? 'TDS SEC' : 'UTR')}: {row.invoiceNo || row.bankInfo?.utrReference}
                                     </span>
                                   )}
 
@@ -258,9 +258,15 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                                                   {source?.isUsingAdvance ? (
                                                     <span className="text-purple-600 italic">Deducted from Advance Wallet</span>
                                                   ) : (
-                                                    <span>
-                                                      Paid via <strong className="text-slate-800">{source?.bankInfo?.bankName || "Unknown"}</strong> (Ref: {source?.bankInfo?.utrReference || "N/A"})
-                                                    </span>
+                                                    source?.bankInfo?.bankName === "TDS Deduction" ? (
+                                                      <span>
+                                                        Adjusted via <strong className="text-slate-800">TDS Deduction</strong> (Sec: {source?.bankInfo?.utrReference || "N/A"})
+                                                      </span>
+                                                    ) : (
+                                                      <span>
+                                                        Paid via <strong className="text-slate-800">{source?.bankInfo?.bankName || "Unknown"}</strong> (Ref: {source?.bankInfo?.utrReference || "N/A"})
+                                                      </span>
+                                                    )
                                                   )}
                                                   <span className="text-xs text-slate-400"> • {source?.date ? new Date(source.date).toLocaleDateString() : "No date"}</span>
                                                 </div>
