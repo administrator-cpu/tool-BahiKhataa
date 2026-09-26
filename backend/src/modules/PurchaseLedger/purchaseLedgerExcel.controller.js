@@ -11,28 +11,32 @@ const toWhole = (num) => Math.trunc(Number(num) || 0);
 // 📊 EXPORT TDS REPORT (EXCEL)
 // ==========================================
 export const exportTdsReport = catchAsync(async (req, res, next) => {
-  const bills = await PurchaseLedger.find({
+  const logs = await PurchaseLedger.find({
     status: 'approved',
-    credit: { $gt: 0 },
+    $or: [
+      { credit: { $gt: 0 }, tdsAmount: { $gt: 0 } }, // Scenario A: Deducted on the bill
+      { credit: { $gt: 0 }, tdsHead: { $ne: null, $ne: "" } }, // Scenario A fallback
+      { debit: { $gt: 0 }, 'bankInfo.bankName': 'TDS Deduction' } // Scenario B: Deducted via separate entry
+    ]
   })
     .populate('vendor', 'companyName panNumber')
     .sort({ date: 1 })
     .lean();
 
-  if (!bills || bills.length === 0) {
-    return next(new AppError('No bills found to generate TDS report.', 404));
+  if (!logs || logs.length === 0) {
+    return next(new AppError('No TDS records found to generate report.', 404));
   }
 
   const workbook = new excelJS.Workbook();
   const worksheet = workbook.addWorksheet('Vendor TDS Report');
 
   worksheet.columns = [
-    { header: 'Bill Date', key: 'billDate', width: 15 },
-    { header: 'Name of the Party', key: 'vendorName', width: 35 },
+    { header: 'Date', key: 'billDate', width: 15 },
+    { header: 'Name of the Party', key: 'vendorName', width: 45 },
     { header: 'PAN', key: 'vendorPan', width: 20 },
     { header: 'Section', key: 'tdsHead', width: 15 },
     { header: 'Rate', key: 'tdsRate', width: 15 },
-    { header: 'Amount', key: 'baseAmount', width: 20 },
+    { header: 'Base Amount', key: 'baseAmount', width: 20 },
     { header: 'Actual TDS', key: 'tdsAmount', width: 20 },
   ];
 
@@ -43,20 +47,37 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
     fgColor: { argb: 'FFE0E0E0' }
   };
 
-  bills.forEach((bill) => {
-    if (bill.tdsAmount > 0 || bill.tdsHead) {
-      worksheet.addRow({
-        billDate: bill.date
-          ? `${String(new Date(bill.date).getDate()).padStart(2, '0')}-${new Date(bill.date).toLocaleString('en-US', { month: 'short' })}-${String(new Date(bill.date).getFullYear()).slice(-2)}`
-          : 'N/A',
-        vendorName: bill.vendor?.companyName || 'Unknown Vendor',
-        vendorPan: bill.vendor?.panNumber || 'NOT PROVIDED',
-        tdsHead: bill.tdsHead || 'N/A',
-        tdsRate: bill.tdsPercentage ? `${bill.tdsPercentage}%` : '0%',
-        baseAmount: bill.baseAmount || 0,
-        tdsAmount: bill.tdsAmount || 0,
-      });
+  logs.forEach((log) => {
+    let actualTdsHead = 'N/A';
+    let actualTdsRate = '0%';
+    let actualBaseAmount = 0;
+    let actualTdsAmount = 0;
+    let entryTypeLabel = '';
+
+    if (log.credit > 0) {
+      actualTdsHead = log.tdsHead || 'N/A';
+      actualTdsRate = log.tdsPercentage ? `${log.tdsPercentage}%` : '0%';
+      actualBaseAmount = log.baseAmount || 0;
+      actualTdsAmount = log.tdsAmount || 0;
+    } else if (log.debit > 0) {
+      actualTdsHead = log.bankInfo?.utrReference || 'N/A'; // We stored the Head here!
+      actualTdsRate = 'Manual Adj.'; // No percentage applied, it was a flat amount
+      actualBaseAmount = 0; // No base amount for a manual adjustment
+      actualTdsAmount = log.debit || 0; // The debit amount is the TDS
+      entryTypeLabel = ' (Separate TDS Adj.)';
     }
+
+    worksheet.addRow({
+      billDate: log.date
+        ? `${String(new Date(log.date).getDate()).padStart(2, '0')}-${new Date(log.date).toLocaleString('en-US', { month: 'short' })}-${String(new Date(log.date).getFullYear()).slice(-2)}`
+        : 'N/A',
+      vendorName: (log.vendor?.companyName || 'Unknown Vendor') + entryTypeLabel,
+      vendorPan: log.vendor?.panNumber || 'NOT PROVIDED',
+      tdsHead: actualTdsHead,
+      tdsRate: actualTdsRate,
+      baseAmount: actualBaseAmount,
+      tdsAmount: actualTdsAmount,
+    });
   });
 
   worksheet.getColumn('baseAmount').numFmt = '₹#,##0.00';
