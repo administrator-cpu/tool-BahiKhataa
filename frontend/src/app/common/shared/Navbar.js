@@ -45,7 +45,7 @@ const Navbar = () => {
 
         <Link href="/" className="flex items-center gap-2 group">
           <span className="text-xl font-bold text-slate-900 tracking-tight">
-            Bahi<span className="text-blue-600">Khata</span>
+            <img src="/bahiKhata.webp" alt="Logo" className="h-14 rounded-xl w-auto" />
           </span>
         </Link>
 

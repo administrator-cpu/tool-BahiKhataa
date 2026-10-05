@@ -33,6 +33,11 @@ const Footer = () => {
           <p className="text-slate-400 text-xs font-medium">
             © {currentYear} All rights reserved.
           </p>
+          <div className="flex items-center gap-8 text-xs  text-slate-400">
+             <span className="flex items-center gap-1">
+             {'</>'} Powered by DIV
+             </span>
+          </div>
           <div className="flex items-center gap-8 text-xs font-bold text-slate-400">
              <span className="flex items-center gap-1">
                 Made in <span className="text-orange-500">India</span>
