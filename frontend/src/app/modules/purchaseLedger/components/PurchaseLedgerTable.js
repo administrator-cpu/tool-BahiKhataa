@@ -123,7 +123,7 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                   {!collapsedMonths[group.monthYear] && group.rows.map((row) => {
                     const rowId = row._id || row.id;
                     const isExpanded = expandedId === rowId;
-                    const canExpand = row.credit > 0 || (row.allocations && row.allocations.length > 0) || (row.paymentsMade && row.paymentsMade.length > 0) || row.unallocatedAmount > 0;
+                    const canExpand = row.credit || (row.allocations && row.allocations.length > 0) || (row.paymentsMade && row.paymentsMade.length > 0) || row.unallocatedAmount;
 
                     return (
                       <React.Fragment key={rowId}>
@@ -179,10 +179,10 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                           </td>
 
                           <td className="px-6 py-4 font-bold text-right text-emerald-600">
-                            {row.debit > 0 ? safeFormatCurrency(row.debit) : "-"}
+                            {row.debit ? safeFormatCurrency(row.debit) : "-"}
                           </td>
                           <td className="px-6 py-4 font-bold text-right text-orange-600">
-                            {row.credit > 0 ? safeFormatCurrency(row.credit) : "-"}
+                            {row.credit ? safeFormatCurrency(row.credit) : "-"}
                           </td>
 
                           <td className="px-6 py-4">

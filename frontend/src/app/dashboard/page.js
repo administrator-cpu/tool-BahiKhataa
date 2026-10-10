@@ -35,6 +35,9 @@ export default function UnifiedDashboard() {
   const [isTdsLoading, setIsTdsLoading] = useState(false);
   const [tdsDone, setTdsDone] = useState(false);
 
+  const [showTdsModal, setShowTdsModal] = useState(false);
+  const [tdsDates, setTdsDates] = useState({ fromDate: '', toDate: '' });
+
   const { customers, isLoading: isCustomersLoading, refresh: refreshCustomers } = useCustomers();
   const isPay = activeTab === "vendors";
 
@@ -66,24 +69,50 @@ export default function UnifiedDashboard() {
     }
   }, [isPay, userRole, vendors.length]);
 
-  const handleDownloadTDS = async () => {
+  const handleDownloadTDS = async (isFull) => {
+    const params = isFull ? {} : { fromDate: tdsDates.fromDate, toDate: tdsDates.toDate };
+
+    if (!isFull && (!params.fromDate || !params.toDate)) {
+      return toast.error("Please select both Start and End dates.");
+    }
+
     const toastId = toast.loading("Generating TDS report…");
     setIsTdsLoading(true);
     try {
-      const response = await purchaseLedgerService.exportTdsReport();
+      const response = await purchaseLedgerService.exportTdsReport(params);
       const url = window.URL.createObjectURL(new Blob([response.data]));
+
+      let fileNameSuffix = new Date().toISOString().split("T")[0];
+      if (!isFull) fileNameSuffix = `${params.fromDate}_to_${params.toDate}`;
+
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `Vendor_TDS_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
+      link.setAttribute("download", `Vendor_TDS_Report_${fileNameSuffix}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
       toast.success("Report downloaded", { id: toastId });
       setTdsDone(true);
+      setShowTdsModal(false);
+      setTdsDates({ fromDate: '', toDate: '' });
       setTimeout(() => setTdsDone(false), 2000);
     } catch (error) {
       console.error(error);
-      toast.error("Failed to download TDS report", { id: toastId });
+      let errorMsg = "Failed to download TDS report";
+
+      if (error.response?.data instanceof Blob) {
+        try {
+          const textData = await error.response.data.text();
+          const jsonError = JSON.parse(textData);
+          errorMsg = jsonError.message || errorMsg;
+        } catch (parseError) {
+          console.error("Could not parse error blob", parseError);
+        }
+      } else if (error?.response?.data?.message) {
+        errorMsg = error.response.data.message;
+      }
+
+      toast.error(errorMsg, { id: toastId });
     } finally {
       setIsTdsLoading(false);
     }
@@ -187,12 +216,10 @@ export default function UnifiedDashboard() {
               <Button
                 variant="success"
                 icon={FileSpreadsheet}
-                isLoading={isTdsLoading}
-                isSuccess={tdsDone}
-                onClick={handleDownloadTDS}
+                onClick={() => setShowTdsModal(true)} // 🚨 Now opens the Modal
                 className="!px-[15px] !py-[10px] !text-[12.5px] !font-semibold"
               >
-                {isTdsLoading ? "Generating" : tdsDone ? "Downloaded" : "TDS report"}
+                TDS Report
               </Button>
             )}
 
@@ -299,6 +326,78 @@ export default function UnifiedDashboard() {
           </div>
         </div>
       </div>
+
+      {showTdsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#101014]/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF9] rounded-3xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200 border border-[#E7E1D6]">
+            <h3 className="text-[19px] font-bold text-[#101014] mb-5 flex items-center gap-2">
+              <FileSpreadsheet className="text-emerald-600" size={20} />
+              Export TDS Report
+            </h3>
+
+            <div className="space-y-5">
+              {/* Option 1: Full Download */}
+              <div className="bg-[#F4F0E7] p-4 rounded-2xl border border-[#E7E1D6]">
+                <p className="text-sm font-bold text-[#101014] mb-2">Option 1: Complete History</p>
+                <button
+                  onClick={() => handleDownloadTDS(true)}
+                  disabled={isTdsLoading}
+                  className="w-full py-2.5 bg-white border border-[#E7E1D6] text-[#101014] hover:bg-slate-50 rounded-xl font-bold text-sm transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isTdsLoading && !tdsDates.fromDate ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Download Full Report
+                </button>
+              </div>
+
+              {/* Option 2: Date Filter */}
+              <div className="p-4 rounded-2xl border bg-emerald-50/50 border-emerald-100">
+                <p className="text-sm font-bold text-[#101014] mb-3">Option 2: Filter by Date</p>
+
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-[#8A8780] mb-1 block">From Date</label>
+                    <input
+                      type="date"
+                      value={tdsDates.fromDate}
+                      onChange={(e) => setTdsDates(p => ({ ...p, fromDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-[#E7E1D6] bg-white text-[#101014] font-semibold rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-[#8A8780] mb-1 block">To Date</label>
+                    <input
+                      type="date"
+                      value={tdsDates.toDate}
+                      onChange={(e) => setTdsDates(p => ({ ...p, toDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-[#E7E1D6] bg-white text-[#101014] font-semibold rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleDownloadTDS(false)}
+                  disabled={isTdsLoading}
+                  className="w-full py-2.5 rounded-xl font-bold text-sm transition-colors shadow-sm bg-[#11A849] text-white hover:bg-[#0E8A3C] disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isTdsLoading && tdsDates.fromDate ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Download Filtered Report
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowTdsModal(false);
+                setTdsDates({ fromDate: '', toDate: '' });
+              }}
+              disabled={isTdsLoading}
+              className="w-full mt-4 py-2.5 bg-transparent text-[#6B6862] hover:text-[#101014] rounded-xl font-bold text-sm transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

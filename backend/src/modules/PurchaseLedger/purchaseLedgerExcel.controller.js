@@ -11,20 +11,29 @@ const toWhole = (num) => Math.trunc(Number(num) || 0);
 // 📊 EXPORT TDS REPORT (EXCEL)
 // ==========================================
 export const exportTdsReport = catchAsync(async (req, res, next) => {
-  const logs = await PurchaseLedger.find({
+  const { fromDate, toDate } = req.query;
+  const query = {
     status: 'approved',
     $or: [
       { credit: { $gt: 0 }, tdsAmount: { $gt: 0 } }, // Scenario A: Deducted on the bill
       { credit: { $gt: 0 }, tdsHead: { $ne: null, $ne: "" } }, // Scenario A fallback
       { debit: { $gt: 0 }, 'bankInfo.bankName': 'TDS Deduction' } // Scenario B: Deducted via separate entry
     ]
-  })
+  };
+
+  if (fromDate || toDate) {
+    query.date = {};
+    if (fromDate) query.date.$gte = new Date(fromDate);
+    if (toDate) query.date.$lte = new Date(toDate);
+  }
+
+  const logs = await PurchaseLedger.find(query)
     .populate('vendor', 'companyName panNumber')
     .sort({ date: 1 })
     .lean();
 
   if (!logs || logs.length === 0) {
-    return next(new AppError('No TDS records found to generate report.', 404));
+    return next(new AppError('No TDS records found for this period to generate a report.', 404));
   }
 
   const workbook = new excelJS.Workbook();
@@ -60,10 +69,10 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
       actualBaseAmount = log.baseAmount || 0;
       actualTdsAmount = log.tdsAmount || 0;
     } else if (log.debit > 0) {
-      actualTdsHead = log.bankInfo?.utrReference || 'N/A'; // We stored the Head here!
-      actualTdsRate = 'Manual Adj.'; // No percentage applied, it was a flat amount
-      actualBaseAmount = 0; // No base amount for a manual adjustment
-      actualTdsAmount = log.debit || 0; // The debit amount is the TDS
+      actualTdsHead = log.bankInfo?.utrReference || 'N/A';
+      actualTdsRate = 'Manual Adj.';
+      actualBaseAmount = 0;
+      actualTdsAmount = log.debit || 0;
       entryTypeLabel = ' (Separate TDS Adj.)';
     }
 
@@ -83,10 +92,15 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
   worksheet.getColumn('baseAmount').numFmt = '₹#,##0.00';
   worksheet.getColumn('tdsAmount').numFmt = '₹#,##0.00';
 
+  let fileNameSuffix = new Date().toISOString().split('T')[0]; // Default to today
+  if (fromDate && toDate) fileNameSuffix = `${fromDate}_to_${toDate}`;
+  else if (fromDate) fileNameSuffix = `From_${fromDate}`;
+  else if (toDate) fileNameSuffix = `UpTo_${toDate}`;
+
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader(
     'Content-Disposition',
-    `attachment; filename=Vendor_TDS_Report_${new Date().toISOString().split('T')[0]}.xlsx`
+    `attachment; filename=Vendor_TDS_Report_${fileNameSuffix}.xlsx`
   );
 
   await workbook.xlsx.write(res);
