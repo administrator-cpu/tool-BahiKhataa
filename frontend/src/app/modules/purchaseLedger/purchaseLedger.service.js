@@ -22,8 +22,9 @@ export const purchaseLedgerService = {
     return await apiClient.delete(`/purchase-ledger/${id}`);
   },
 
-  exportTdsReport: async () => {
+  exportTdsReport: async (params = {}) => {
     return await apiClient.get('/purchase-ledger/export-tds', {
+      params,
       responseType: 'blob',
     });
   },
