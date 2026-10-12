@@ -1,0 +1,27 @@
+name: Deploy BahiKhata API
+
+# Deploys only when backend code changes on main (or when started by hand).
+# Never triggered by pull requests: the runner executes this as Administrator.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-bahikhata
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, bahikhata-prod]
+    timeout-minutes: 15
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: never
+    steps:
+      - name: Deploy bahikhata-api
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File C:\Apps\deploy\deploy-bahikhata.ps1
+          exit $LASTEXITCODE
