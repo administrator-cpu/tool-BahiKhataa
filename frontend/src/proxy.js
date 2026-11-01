@@ -20,18 +20,29 @@ function isTokenExpired(token) {
   }
 }
 
+// `session_exp` holds only the JWT's exp claim (seconds), set at login
+function isSessionValid(sessionExp) {
+  const exp = Number(sessionExp);
+  return Number.isFinite(exp) && exp > 0 && Date.now() < exp * 1000;
+}
+
 export function proxy(request) {
   const url = request.nextUrl.pathname;
-  const token = request.cookies.get('token')?.value;
+  const sessionExp = request.cookies.get('session_exp')?.value;
+  // Legacy: sessions created before the switch to `session_exp` still carry the JWT cookie
+  const legacyToken = request.cookies.get('token')?.value;
   const role = request.cookies.get('role')?.value;
-  
+
+  const isLoggedIn = isSessionValid(sessionExp) || (!!legacyToken && !isTokenExpired(legacyToken));
+
   // ==========================================
   // RULE 1: Dashboard is for logged-in & VALID users only
   // ==========================================
   if (url.startsWith('/dashboard')) {
-    if (!token || isTokenExpired(token)) {
+    if (!isLoggedIn) {
       // 💡 If expired, redirect to login AND clear the dead cookies
       const response = NextResponse.redirect(new URL('/login', request.url));
+      response.cookies.delete('session_exp');
       response.cookies.delete('token');
       response.cookies.delete('role');
       return response;
@@ -54,7 +65,7 @@ export function proxy(request) {
   // ==========================================
   // RULE 3: Don't let logged-in users see the Login page
   // ==========================================
-  if (url === '/login' && token && !isTokenExpired(token)) {
+  if (url === '/login' && isLoggedIn) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

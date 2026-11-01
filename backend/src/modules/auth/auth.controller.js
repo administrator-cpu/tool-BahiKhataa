@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { promisify } from 'util';
 import User from './user.model.js';
 import { sendEmail } from '../../utils/sendEmail.js';
 import AppError from '../../utils/AppError.js';
@@ -11,8 +12,16 @@ const signToken = (id) => {
   });
 };
 
+// Purpose claim that marks the short-lived token issued after OTP verification
+export const PASSWORD_RESET_PURPOSE = 'password-reset';
+const MAX_OTP_ATTEMPTS = 5;
+const OTP_SENT_MESSAGE = 'If an account exists for this email, an OTP has been sent.';
+
+const hashOtp = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
+
+// maxAge (not a fixed `expires` date) so the expiry is computed per response
 const cookieOptions = {
-  expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   httpOnly: true,
   secure: true,
   sameSite: 'None'
@@ -54,14 +63,16 @@ export const forgotPassword = catchAsync(async (req, res, next) => {
   }
   const email = req.body.email.toLowerCase();
   const user = await User.findOne({ email });
+  // Same response whether or not the account exists, so emails can't be enumerated
   if (!user) {
-    return next(new AppError('No user found with that email address.', 404));
+    return res.status(200).json({ status: 'success', message: OTP_SENT_MESSAGE });
   }
 
   const otp = crypto.randomInt(100000, 999999).toString();
 
-  user.passwordResetOtp = crypto.createHash('sha256').update(otp).digest('hex');
+  user.passwordResetOtp = hashOtp(otp);
   user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+  user.passwordResetAttempts = 0;
 
   await user.save({ validateBeforeSave: false });
 
@@ -83,7 +94,7 @@ export const forgotPassword = catchAsync(async (req, res, next) => {
 
     res.status(200).json({
       status: 'success',
-      message: 'OTP sent to email!'
+      message: OTP_SENT_MESSAGE
     });
   } catch (err) {
     user.passwordResetOtp = undefined;
@@ -98,23 +109,42 @@ export const verifyOtp = catchAsync(async (req, res, next) => {
   if (!req.body.otp || !req.body.email) {
     return next(new AppError('Please provide both email and OTP', 400));
   }
-  const email = req.body.email.toLowerCase();
-  const hashedOtp = crypto.createHash('sha256').update(req.body.otp).digest('hex');
+  const email = String(req.body.email).toLowerCase();
 
-  const user = await User.findOne({
-    email: email,
-    passwordResetOtp: hashedOtp,
-    passwordResetExpires: { $gt: Date.now() }
-  });
+  const user = await User.findOne({ email })
+    .select('+passwordResetOtp +passwordResetExpires +passwordResetAttempts');
 
-  if (!user) {
+  if (!user || !user.passwordResetOtp || !user.passwordResetExpires || user.passwordResetExpires < Date.now()) {
     return next(new AppError('OTP is invalid or has expired', 400));
   }
-  user.passwordResetOtp = undefined;
-  user.passwordResetExpires = undefined;
+
+  const clearOtp = () => {
+    user.passwordResetOtp = undefined;
+    user.passwordResetExpires = undefined;
+    user.passwordResetAttempts = 0;
+  };
+
+  const isMatch = crypto.timingSafeEqual(
+    Buffer.from(hashOtp(req.body.otp)),
+    Buffer.from(user.passwordResetOtp)
+  );
+
+  if (!isMatch) {
+    user.passwordResetAttempts = (user.passwordResetAttempts || 0) + 1;
+    // Too many wrong guesses burns the OTP; the user has to request a new one
+    if (user.passwordResetAttempts >= MAX_OTP_ATTEMPTS) {
+      clearOtp();
+      await user.save({ validateBeforeSave: false });
+      return next(new AppError('Too many incorrect attempts. Please request a new OTP.', 400));
+    }
+    await user.save({ validateBeforeSave: false });
+    return next(new AppError('OTP is invalid or has expired', 400));
+  }
+
+  clearOtp();
   await user.save({ validateBeforeSave: false });
 
-  const temporaryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+  const temporaryToken = jwt.sign({ id: user._id, purpose: PASSWORD_RESET_PURPOSE }, process.env.JWT_SECRET, {
     expiresIn: '15m'
   });
 
@@ -126,11 +156,25 @@ export const verifyOtp = catchAsync(async (req, res, next) => {
 });
 
 export const resetPassword = catchAsync(async (req, res, next) => {
-  const decoded = jwt.verify(req.body.temporaryToken, process.env.JWT_SECRET);
+  if (!req.body.temporaryToken) {
+    return next(new AppError('Reset token is missing. Please verify your OTP again.', 400));
+  }
+
+  const decoded = await promisify(jwt.verify)(req.body.temporaryToken, process.env.JWT_SECRET);
+
+  // Only the token issued by verify-otp may reset a password (not a normal login token)
+  if (decoded.purpose !== PASSWORD_RESET_PURPOSE) {
+    return next(new AppError('Invalid or expired reset token. Please verify your OTP again.', 401));
+  }
 
   const user = await User.findById(decoded.id);
   if (!user) {
     return next(new AppError('User no longer exists.', 404));
+  }
+
+  // Single use: once the password has changed, this token is dead
+  if (user.changedPasswordAfter(decoded.iat)) {
+    return next(new AppError('This reset token has already been used. Please request a new OTP.', 401));
   }
 
   user.password = req.body.password;
@@ -204,7 +248,7 @@ export const getMe = catchAsync(async (req, res, next) => {
 export const logout = catchAsync(async (req, res, next) => {
   res.cookie('token', 'loggedout', {
     ...cookieOptions,
-    expires: new Date(Date.now() + 10 * 1000),
+    maxAge: 10 * 1000,
   });
 
   res.status(200).json({

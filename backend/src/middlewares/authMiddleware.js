@@ -18,6 +18,11 @@ export const protect = catchAsync(async (req, res, next) => {
 
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
 
+  // Purpose-scoped tokens (e.g. password reset) are not login sessions
+  if (decoded.purpose) {
+    return next(new AppError('Invalid token. Please log in again!', 401));
+  }
+
   const currentUser = await User.findById(decoded.id);
   if (!currentUser) {
     return next(new AppError('The user belonging to this token does no longer exist.', 401));

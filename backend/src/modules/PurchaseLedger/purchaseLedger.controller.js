@@ -13,12 +13,14 @@ const toWhole = (num) => Math.trunc(Number(num) || 0);
 // ==========================================
 const processPaymentAllocations = async (paymentLog) => {
   let totalAllocated = 0;
+  const appliedAllocations = [];
 
   if (paymentLog.allocations && paymentLog.allocations.length > 0) {
     for (const alloc of paymentLog.allocations) {
       const bill = await PurchaseLedger.findById(alloc.billId);
 
-      if (bill && bill.credit > 0) {
+      // A payment can only settle bills of its own vendor
+      if (bill && bill.credit > 0 && bill.vendor?.toString() === paymentLog.vendor?.toString()) {
         const safeAmountToApply = Math.min(toWhole(alloc.amountApplied), bill.balanceDue);
 
         if (safeAmountToApply > 0) {
@@ -38,10 +40,14 @@ const processPaymentAllocations = async (paymentLog) => {
           });
 
           await bill.save();
+          appliedAllocations.push({ billId: bill._id, amountApplied: safeAmountToApply });
           totalAllocated = toWhole(totalAllocated + safeAmountToApply);
         }
       }
     }
+
+    // Keep only what was actually applied so a later delete rolls back exactly that
+    paymentLog.allocations = appliedAllocations;
   }
 
   const baseAmount = paymentLog.isUsingAdvance ? paymentLog.advanceAmount : paymentLog.debit;
@@ -154,6 +160,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
       const billIds = activeAllocations.map(a => a.billId);
       const targetBills = await PurchaseLedger.find({
         _id: { $in: billIds },
+        vendor: entryData.vendor,
         credit: { $gt: 0 },
         balanceDue: { $gt: 0 }
       });
@@ -462,9 +469,10 @@ export const downloadVendorLedgerExcel = catchAsync(async (req, res, next) => {
   };
   worksheet.getRow(1).alignment = { horizontal: 'center' };
 
+  // Any non-zero amount is printed, including negatives (e.g. credit notes / reversals)
   ledgers.forEach((log) => {
     let desc = log.description || '-';
-    if (log.debit > 0 && log.bankInfo?.bankName) {
+    if (log.debit && log.bankInfo?.bankName) {
       desc = `Paid via ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(Ref: ' + log.bankInfo.utrReference + ')' : ''}`;
     }
 
@@ -472,8 +480,8 @@ export const downloadVendorLedgerExcel = catchAsync(async (req, res, next) => {
       date: new Date(log.date).toLocaleDateString('en-IN'),
       description: desc,
       invoiceNo: log.invoiceNo || '-',
-      debit: log.debit > 0 ? log.debit : '',
-      credit: log.credit > 0 ? log.credit : ''
+      debit: log.debit ? log.debit : '',
+      credit: log.credit ? log.credit : ''
     });
 
     row.getCell('debit').alignment = { horizontal: 'right' };
@@ -599,18 +607,19 @@ export const downloadVendorLedgerPDF = catchAsync(async (req, res, next) => {
     totalDebit += debitAmt;
     totalCredit += creditAmt;
 
+    // Any non-zero amount is printed, including negatives (e.g. credit notes / reversals)
     let particulars = log.description || '-';
-    if (log.credit > 0 && log.invoiceNo) {
+    if (log.credit && log.invoiceNo) {
       particulars = `${log.description} - ${log.invoiceNo}`;
-    } else if (log.debit > 0 && log.bankInfo?.bankName) {
+    } else if (log.debit && log.bankInfo?.bankName) {
       particulars = `Paid via ${log.bankInfo.bankName} ${log.bankInfo.utrReference ? '(Ref: ' + log.bankInfo.utrReference + ')' : ''}`;
     }
 
     tableRows.push([
       new Date(log.date).toLocaleDateString('en-IN'),
       particulars,
-      debitAmt > 0 ? debitAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
-      creditAmt > 0 ? creditAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
+      debitAmt ? debitAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+      creditAmt ? creditAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
     ]);
   });
 

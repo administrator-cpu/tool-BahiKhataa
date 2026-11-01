@@ -5,6 +5,7 @@ import Ledger from "../ledger/ledger.model.js";
 import excel from "exceljs";
 import PDFDocument from 'pdfkit-table';
 import { crmClient } from "../../utils/crmClient.js";
+import { assertCustomerAccess } from "../../utils/customerAccess.js";
 
 export const getCRMProfileForCreation = catchAsync(async (req, res, next) => {
   const { crmId } = req.params;
@@ -151,6 +152,8 @@ export const getAllCustomers = catchAsync(async (req, res, next) => {
 });
 
 export const getCustomerById = catchAsync(async (req, res, next) => {
+  await assertCustomerAccess(req.user, req.params.id);
+
   const customer = await Customer.findById(req.params.id).populate(
     "manager",
     "name",
@@ -167,6 +170,10 @@ export const getCustomerById = catchAsync(async (req, res, next) => {
 });
 
 export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
+  // Employees can only view their own portfolio; admins can view any manager's
+  if (req.user.role !== "admin" && req.query.manager && req.query.manager !== req.user.id) {
+    return next(new AppError("You can only view your own portfolio", 403));
+  }
   const targetManager = req.query.manager || req.user.id;
   const customers = await Customer.find({ manager: targetManager }).lean().populate("manager", "name email");
 
@@ -253,6 +260,8 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
 export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   const { fromDate, toDate } = req.query; // 🚨 Added Date Params
+
+  await assertCustomerAccess(req.user, customerId);
 
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));
@@ -397,6 +406,8 @@ export const downloadLedgerExcel = catchAsync(async (req, res, next) => {
 export const downloadLedgerPDF = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   const { fromDate, toDate } = req.query;
+
+  await assertCustomerAccess(req.user, customerId);
 
   const customer = await Customer.findById(customerId);
   if (!customer) return next(new AppError('Customer not found', 404));

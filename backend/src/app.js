@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import logger from './utils/logger.js';
 import AppError from './utils/AppError.js';
 import { globalErrorHandler } from './middlewares/error.middleware.js';
+import { sanitizeRequest } from './middlewares/sanitize.middleware.js';
 
 import authRoutes from './modules/auth/auth.routes.js';
 import customerRoutes from './modules/customer/customer.routes.js';
@@ -62,8 +63,9 @@ app.use(helmet({
 app.use(cors(corsOptions));
 
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(sanitizeRequest);
 app.use(cookieParser());
 app.use('/api', limiter); 
 
