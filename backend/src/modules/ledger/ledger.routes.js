@@ -20,8 +20,8 @@ router.use(protect);
 
 router.get('/pending', restrictTo('admin',"employee"), getPendingQueue);
 router.post('/payment', restrictTo('employee', 'admin'), addPendingPayment);
-router.get('/database/sanitize', sanitizeDatabaseNumbers);
-router.post('/export/financial-report', exportFinancialReport);
+router.get('/database/sanitize', restrictTo('admin'), sanitizeDatabaseNumbers);
+router.post('/export/financial-report', restrictTo('admin'), exportFinancialReport);
 router.post('/webhook/bulk-sync-invoices', restrictTo('admin'), bulkSyncInvoiceStatuses);
 router.patch('/:id', restrictTo('employee', 'admin'), editLedgerEntry);
 router.delete('/:id', restrictTo('employee','admin'), deleteLedgerEntry);

@@ -6,17 +6,20 @@ import { sendPaymentAdjustmentEmail } from '../../utils/sendEmail.js';
 import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
+import { assertCustomerAccess } from '../../utils/customerAccess.js';
 
 const toWhole = (num) => Math.trunc(Number(num) || 0);
 
 const processPaymentAllocations = async (paymentLog) => {
   let totalAllocated = 0;
+  const appliedAllocations = [];
 
   if (paymentLog.allocations && paymentLog.allocations.length > 0) {
     for (const alloc of paymentLog.allocations) {
       const bill = await Ledger.findById(alloc.billId);
 
-      if (bill && bill.debit > 0) {
+      // A payment can only settle bills of its own customer
+      if (bill && bill.debit > 0 && bill.customer?.toString() === paymentLog.customer?.toString()) {
         const safeAmountToApply = Math.min(toWhole(alloc.amountApplied), bill.balanceDue);
 
         if (safeAmountToApply > 0) {
@@ -36,10 +39,14 @@ const processPaymentAllocations = async (paymentLog) => {
           });
 
           await bill.save();
+          appliedAllocations.push({ billId: bill._id, amountApplied: safeAmountToApply });
           totalAllocated = toWhole(totalAllocated + safeAmountToApply);
         }
       }
     }
+
+    // Keep only what was actually applied so a later delete rolls back exactly that
+    paymentLog.allocations = appliedAllocations;
   }
 
   if (paymentLog.isUsingAdvance) {
@@ -83,7 +90,7 @@ export const addPendingPayment = catchAsync(async (req, res, next) => {
   }
 
   const targetCustomer = await Customer.findById(customer).select('availableAdvance manager');
-  if (!targetCustomer || targetCustomer.manager.toString() !== req.user.id) {
+  if (!targetCustomer || targetCustomer.manager?.toString() !== req.user.id) {
     return next(new AppError('Customer not found or not assigned to you', 404));
   }
 
@@ -95,6 +102,7 @@ export const addPendingPayment = catchAsync(async (req, res, next) => {
   const billIds = activeAllocations.map(a => a.billId);
   const targetBills = await Ledger.find({
     _id: { $in: billIds },
+    customer: targetCustomer._id,
     debit: { $gt: 0 },
     balanceDue: { $gt: 0 }
   });
@@ -141,11 +149,15 @@ export const addPendingPayment = catchAsync(async (req, res, next) => {
 });
 
 export const getPendingQueue = catchAsync(async (req, res, next) => {
-  const { manager } = req.query;
+  const filter = { status: 'pending' };
 
-  const logs = await Ledger.find({
-    status: 'pending'
-  }).populate({
+  // Employees only see pending entries for the customers they manage
+  if (req.user.role !== 'admin') {
+    const myCustomerIds = await Customer.find({ manager: req.user.id }).distinct('_id');
+    filter.customer = { $in: myCustomerIds };
+  }
+
+  const logs = await Ledger.find(filter).populate({
     path: 'customer',
     select: 'companyName'
   });
@@ -182,7 +194,7 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
       let totalAllocated = 0;
       for (const alloc of allocations) {
         const targetBill = await Ledger.findById(alloc.billId);
-        if (!targetBill) {
+        if (!targetBill || targetBill.customer?.toString() !== log.customer.toString()) {
           return next(new AppError(`Bill not found for ID: ${alloc.billId}`, 404));
         }
 
@@ -269,7 +281,7 @@ export const editLedgerEntry = catchAsync(async (req, res, next) => {
         let totalAllocated = 0;
         for (const alloc of allocations) {
           const targetBill = await Ledger.findById(alloc.billId);
-          if (!targetBill) {
+          if (!targetBill || targetBill.customer?.toString() !== log.customer.toString()) {
             return next(new AppError(`Bill not found for ID: ${alloc.billId}`, 404));
           }
 
@@ -479,6 +491,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
       const billIds = activeAllocations.map(a => a.billId);
       const targetBills = await Ledger.find({
         _id: { $in: billIds },
+        customer: entryData.customer,
         debit: { $gt: 0 },
         balanceDue: { $gt: 0 }
       });
@@ -542,6 +555,8 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   if (!customerId) return next(new AppError('Customer ID is required', 400));
 
+  await assertCustomerAccess(req.user, customerId);
+
   const customerDoc = await Customer.findById(customerId).select('availableAdvance');
 
   const ledgerData = await Ledger.find({
@@ -589,6 +604,8 @@ export const getLedgerEntryDetails = catchAsync(async (req, res, next) => {
   if (!log) {
     return next(new AppError('No ledger entry found with that ID', 404));
   }
+
+  await assertCustomerAccess(req.user, log.customer?._id || log.customer);
 
   res.status(200).json({
     status: 'success',
