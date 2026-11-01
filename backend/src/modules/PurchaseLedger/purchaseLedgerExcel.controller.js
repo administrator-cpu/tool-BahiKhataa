@@ -15,8 +15,9 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
   const query = {
     status: 'approved',
     $or: [
-      { credit: { $gt: 0 }, tdsAmount: { $gt: 0 } }, // Scenario A: Deducted on the bill
-      { credit: { $gt: 0 }, tdsHead: { $ne: null, $ne: "" } }, // Scenario A fallback
+      // Scenario A: Deducted on the bill. Credit can be negative (credit note) -> TDS reversal
+      { credit: { $ne: 0 }, tdsAmount: { $nin: [0, null] } },
+      { credit: { $ne: 0 }, tdsHead: { $nin: [null, ''] } }, // Scenario A fallback
       { debit: { $gt: 0 }, 'bankInfo.bankName': 'TDS Deduction' } // Scenario B: Deducted via separate entry
     ]
   };
@@ -24,11 +25,17 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
   if (fromDate || toDate) {
     query.date = {};
     if (fromDate) query.date.$gte = new Date(fromDate);
-    if (toDate) query.date.$lte = new Date(toDate);
+    if (toDate) {
+      // Inclusive of the whole "to" day
+      const endOfDay = new Date(toDate);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+      query.date.$lte = endOfDay;
+    }
   }
 
   const logs = await PurchaseLedger.find(query)
     .populate('vendor', 'companyName panNumber')
+    .populate('allocations.billId', 'invoiceNo')
     .sort({ date: 1 })
     .lean();
 
@@ -63,17 +70,23 @@ export const exportTdsReport = catchAsync(async (req, res, next) => {
     let actualTdsAmount = 0;
     let entryTypeLabel = '';
 
-    if (log.credit > 0) {
+    if (log.credit) {
+      // TDS deducted on the bill itself (negative for a credit note reversing TDS)
       actualTdsHead = log.tdsHead || 'N/A';
       actualTdsRate = log.tdsPercentage ? `${log.tdsPercentage}%` : '0%';
       actualBaseAmount = log.baseAmount || 0;
       actualTdsAmount = log.tdsAmount || 0;
+      if (actualTdsAmount < 0) entryTypeLabel = ' (TDS Reversal / CN)';
     } else if (log.debit > 0) {
+      // TDS deducted through a separate debit entry (TDS Deduction tab)
       actualTdsHead = log.bankInfo?.utrReference || 'N/A';
       actualTdsRate = 'Manual Adj.';
       actualBaseAmount = 0;
       actualTdsAmount = log.debit || 0;
-      entryTypeLabel = ' (Separate TDS Adj.)';
+      const linkedBills = (log.allocations || []).map((a) => a.billId?.invoiceNo).filter(Boolean);
+      entryTypeLabel = linkedBills.length
+        ? ` (Separate TDS Adj. - ${linkedBills.join(', ')})`
+        : ' (Separate TDS Adj.)';
     }
 
     worksheet.addRow({
