@@ -4,6 +4,7 @@ import PurchaseLedger from './purchaseLedger.model.js';
 import Vendor from '../Vendor/vendor.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
+import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
 
 // 🛠️ HELPER: Strict truncation
 const toWhole = (num) => Math.trunc(Number(num) || 0);
@@ -269,7 +270,7 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
     }
   }
 
-  await PurchaseLedger.findByIdAndDelete(id);
+  await deleteWithTombstone(PurchaseLedger, log, { resource: 'purchase-ledgers', reason: 'user-delete', deletedBy: req.user.id });
   return res.status(200).json({ status: 'success', message: 'Log deleted successfully' });
 });
 

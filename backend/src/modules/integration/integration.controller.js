@@ -3,6 +3,7 @@ import Ledger from '../ledger/ledger.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
+import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const toWhole = (num) => Math.trunc(Number(num) || 0);
@@ -587,7 +588,7 @@ export const cancelInvoiceFromInvoicingApp = catchAsync(async (req, res, next) =
     }
   }
 
-  await Ledger.findByIdAndDelete(log._id);
+  await deleteWithTombstone(Ledger, log, { resource: 'ledgers', reason: 'invoice-cancelled' });
 
   return res.status(200).json({
     status: 'success',

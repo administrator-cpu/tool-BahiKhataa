@@ -7,6 +7,7 @@ import { syncInvoicePaymentStatus } from '../../utils/invoicingClient.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { assertCustomerAccess } from '../../utils/customerAccess.js';
+import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
 
 const toWhole = (num) => Math.trunc(Number(num) || 0);
 
@@ -316,7 +317,7 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
     if (log.status !== 'pending' || log.addedBy?.toString() !== req.user.id) {
       return next(new AppError('You can only delete your own pending requests.', 403));
     }
-    await Ledger.findByIdAndDelete(id);
+    await deleteWithTombstone(Ledger, log, { resource: 'ledgers', reason: 'user-delete', deletedBy: req.user.id });
     return res.status(200).json({ status: 'success', message: 'Entry deleted successfully' });
   }
 
@@ -378,7 +379,7 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
       }
     }
 
-    await Ledger.findByIdAndDelete(id);
+    await deleteWithTombstone(Ledger, log, { resource: 'ledgers', reason: 'user-delete', deletedBy: req.user.id });
     return res.status(200).json({ status: 'success', message: 'Log deleted successfully' });
   }
 });

@@ -18,6 +18,7 @@ import integrationRoutes from './modules/integration/integration.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
 import vendorRouter from './modules/Vendor/vendor.routes.js';
 import purchaseLedgerRouter from './modules/PurchaseLedger/purcahseLedger.routes.js'
+import syncRoutes from './modules/sync/sync.routes.js';
 
 const app = express();
 
@@ -26,7 +27,8 @@ const limiter = rateLimit({
   windowMs: 2 * 60 * 1000, // 2 minutes
   message: 'Too many requests from this IP, please try again in 15 minutes!',
   skip: (req) => {
-    if (req.originalUrl.startsWith('/api/integration')) {
+    // /api/sync has its own limiter (see sync.routes.js)
+    if (req.originalUrl.startsWith('/api/integration') || req.originalUrl.startsWith('/api/sync')) {
       return true; 
     }
     return false;
@@ -83,6 +85,7 @@ app.use('/api/integration', integrationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/vendors', vendorRouter);
 app.use('/api/purchase-ledger', purchaseLedgerRouter)
+app.use('/api/sync', syncRoutes);
 
 app.get("/health", (req, res) => {
   const dbState = mongoose.connection.readyState === 1 ? "connected" : "disconnected";

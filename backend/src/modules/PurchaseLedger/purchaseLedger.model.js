@@ -107,6 +107,7 @@ purchaseLedgerSchema.index({ vendor: 1, date: -1 });
 purchaseLedgerSchema.index({ status: 1 });
 purchaseLedgerSchema.index({ paymentStatus: 1 });
 purchaseLedgerSchema.index({ status: 1, paymentStatus: 1, credit: 1 });
+purchaseLedgerSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
 
 
 purchaseLedgerSchema.statics.getAgingReport = async function (vendorId) {
