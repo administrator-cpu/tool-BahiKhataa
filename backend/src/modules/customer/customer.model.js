@@ -50,6 +50,7 @@ const customerSchema = new mongoose.Schema({
 })
 
 customerSchema.index({ manager: 1 });
+customerSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
 
 const Customer = mongoose.model('Customer', customerSchema);
 

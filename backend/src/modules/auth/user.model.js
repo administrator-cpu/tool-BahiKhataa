@@ -58,5 +58,7 @@ userSchema.methods.correctPassword = async function (candidatePassword, userPass
   return await bcrypt.compare(candidatePassword, userPassword);
 };
 
+userSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
+
 const User = mongoose.model('User', userSchema);
 export default User;

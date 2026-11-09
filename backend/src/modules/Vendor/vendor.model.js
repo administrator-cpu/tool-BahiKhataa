@@ -47,6 +47,7 @@ const vendorSchema = new mongoose.Schema({
 });
 
 vendorSchema.index({ manager: 1 });
+vendorSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
 const Vendor = mongoose.models.Vendor || mongoose.model('Vendor', vendorSchema);
 
 export default Vendor;
