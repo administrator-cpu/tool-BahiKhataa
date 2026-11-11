@@ -189,6 +189,15 @@ export const downloadBulkTemplate = catchAsync(async (req, res, next) => {
   res.end();
 });
 
+// Excel cells arrive as display text: "-5,000", "(5,000)", "₹ 5,000" → number (NaN if not numeric)
+const parseExcelAmount = (value) => {
+  if (typeof value === 'number') return value;
+  if (value === null || value === undefined) return NaN;
+  let text = String(value).replace(/[,₹\s]/g, '');
+  if (/^\(.*\)$/.test(text)) text = `-${text.slice(1, -1)}`;
+  return text === '' ? NaN : Number(text);
+};
+
 // ==========================================
 // 🔍 DRY RUN & VALIDATE BULK UPLOAD
 // ==========================================
@@ -227,8 +236,10 @@ export const validateBulkUpload = catchAsync(async (req, res, next) => {
     }
     if (!row.invoiceNo) rowErrors.push("Invoice Number is required.");
     if (!row.description) rowErrors.push("Description is required.");
-    if (!row.baseAmount || isNaN(row.baseAmount) || Number(row.baseAmount) <= 0) {
-      rowErrors.push("Valid Base Amount is required.");
+    // Negative amounts are credit notes; only empty, non-numeric or zero is invalid
+    const parsedBase = parseExcelAmount(row.baseAmount);
+    if (!parsedBase) {
+      rowErrors.push("Valid non-zero Base Amount is required (use a negative amount for credit notes).");
     }
 
     const invTrimmed = row.invoiceNo ? row.invoiceNo.toString().trim().toLowerCase() : '';
@@ -242,7 +253,7 @@ export const validateBulkUpload = catchAsync(async (req, res, next) => {
       currentUploadInvoiceSet.add(invTrimmed);
     }
 
-    const base = toWhole(row.baseAmount);
+    const base = toWhole(parsedBase || 0);
     const total = toWhole(base * 1.18);
     const tdsPct = row.tdsPercentage ? Number(row.tdsPercentage) : 0;
     const tdsAmount = toWhole(base * (tdsPct / 100));
