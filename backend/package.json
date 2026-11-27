@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "start": "node server.js",
     "check:march-closing": "node scripts/checkMarchClosingBalance.js",
-    "check:vendor-circuits": "node scripts/checkVendorCircuitIds.js"
+    "check:vendor-circuits": "node scripts/checkVendorCircuitIds.js",
+    "check:vendor-circuits:summary": "node scripts/checkVendorCircuitIds.js --summary"
   },
   "keywords": [],
   "author": "",

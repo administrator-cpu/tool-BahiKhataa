@@ -5,6 +5,7 @@
 //   npm run check:vendor-circuits -- --vendor 64ab...ef        → by vendor _id
 //   npm run check:vendor-circuits -- --vendor "ACME" --csv     → also writes vendor-circuits-<name>.csv
 //   npm run check:vendor-circuits                              → no vendor: summary for every vendor
+//   add --summary to any of the above                          → counts only, no tables (npm run check:vendor-circuits:summary)
 //
 // "Bill" = any vendor ledger row on the credit side (credit != 0), so credit notes (negative) are included.
 import 'dotenv/config';
@@ -20,6 +21,7 @@ const argValue = (flag) => {
 };
 const vendorArg = argValue('--vendor');
 const writeCsv = args.includes('--csv');
+const summaryOnly = args.includes('--summary'); // counts only, no tables
 
 const hasCircuit = (b) => typeof b.logicalCircuitId === 'string' && b.logicalCircuitId.trim() !== '';
 const fmtDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -65,11 +67,11 @@ const singleVendor = async (vendor) => {
   console.log(`With Logical Circuit ID:        ${withId.length}`);
   console.log(`WITHOUT Logical Circuit ID:     ${withoutId.length}\n`);
 
-  if (withoutId.length) {
+  if (!summaryOnly && withoutId.length) {
     console.log('--- Bills WITHOUT Logical Circuit ID ---');
     console.table(withoutId.map(({ logicalCircuitId, ...r }) => r));
   }
-  if (withId.length) {
+  if (!summaryOnly && withId.length) {
     console.log('--- Bills WITH Logical Circuit ID ---');
     console.table(withId);
   }
@@ -97,6 +99,15 @@ const allVendors = async () => {
     const s = stats.get(String(v._id)) || { withId: 0, withoutId: 0 };
     return { vendor: v.companyName, totalBills: s.withId + s.withoutId, withCircuitId: s.withId, withoutCircuitId: s.withoutId };
   });
+  const sum = (key) => table.reduce((s, r) => s + r[key], 0);
+  if (summaryOnly) {
+    console.log(`Vendors:                        ${table.length}`);
+    console.log(`Total bills:                    ${sum('totalBills')}`);
+    console.log(`With Logical Circuit ID:        ${sum('withCircuitId')}`);
+    console.log(`WITHOUT Logical Circuit ID:     ${sum('withoutCircuitId')}`);
+    console.log(`Vendors with at least one bill missing it: ${table.filter((r) => r.withoutCircuitId > 0).length}`);
+    return;
+  }
   console.log('No --vendor given: summary for all vendors. Use --vendor "<name or id>" for the bill-by-bill list.\n');
   console.table(table);
 };
