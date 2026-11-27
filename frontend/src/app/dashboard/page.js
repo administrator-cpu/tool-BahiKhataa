@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase,
-  FileSpreadsheet, Bell, Filter, Calendar, X,
+  FileSpreadsheet, Bell, Filter, Calendar, X, Network,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
@@ -220,6 +220,17 @@ export default function UnifiedDashboard() {
                 className="!px-[15px] !py-[10px] !text-[12.5px] !font-semibold"
               >
                 TDS Report
+              </Button>
+            )}
+
+            {isAdmin && isPay && (
+              <Button
+                variant="secondary"
+                icon={Network}
+                onClick={() => router.push("/dashboard/circuits/unbilled")}
+                className="!px-[15px] !py-[10px] !text-[12.5px] !font-semibold"
+              >
+                Unbilled Circuits
               </Button>
             )}
 
