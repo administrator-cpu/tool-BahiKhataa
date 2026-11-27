@@ -12,6 +12,7 @@ import { safeFormatCurrency } from "@/app/common/lib/utils";
 import PurchaseLedgerForm from "@/app/modules/purchaseLedger/components/PurchaseLedgerForm";
 import PurchaseLedgerTable from "@/app/modules/purchaseLedger/components/PurchaseLedgerTable";
 import EditVendorModal from "@/app/modules/Vendor/comnponents/EditVendorModal";
+import VendorCircuitBilling from "@/app/modules/circuitBilling/components/VendorCircuitBilling";
 
 export default function VendorPurchaseLedgerPage() {
   const params = useParams();
@@ -232,6 +233,9 @@ export default function VendorPurchaseLedgerPage() {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
+
+        {/* CRM circuits this vendor has billed (loads on open) */}
+        <VendorCircuitBilling vendorId={vendorId} vendorName={vendorProfile?.companyName} />
 
       </div>
 
