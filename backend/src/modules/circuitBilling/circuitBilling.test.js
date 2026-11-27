@@ -40,7 +40,7 @@ describe('Circuit billing API', () => {
     const vendor = await Vendor.create({ companyName: 'AIRTEL', address: 'x' });
     await PurchaseLedger.create([
       { vendor: vendor._id, date: new Date(), invoiceNo: 'B1', description: 'd', credit: 3000, logicalCircuitId: 'air 001' },
-      { vendor: vendor._id, date: new Date(), invoiceNo: 'B2', description: 'd', credit: 100, logicalCircuitId: 'NOPE' },
+      { vendor: vendor._id, date: new Date(), invoiceNo: 'B2', description: 'd', credit: 100, logicalCircuitId: 'NOPE-99999' },
       { vendor: vendor._id, date: new Date(), invoiceNo: 'B3', description: 'd', credit: 100, logicalCircuitId: 'TCL-002', status: 'rejected' },
       { vendor: vendor._id, date: new Date(), invoiceNo: 'P1', description: 'd', debit: 500, bankInfo: { bankName: 'HDFC' } }
     ]);

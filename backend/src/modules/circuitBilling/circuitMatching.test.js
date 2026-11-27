@@ -34,14 +34,45 @@ describe('circuit ID normalisation', () => {
     expect(splitCircuitIds('A-1, a1; B 2\nC3').map((x) => x.key)).toEqual(['A1', 'B2', 'C3']);
     expect(splitCircuitIds('')).toEqual([]);
   });
+
+  it('pulls the number out of notes and symbols, ignoring short numbers and text-only entries', () => {
+    expect(splitCircuitIds('250425100161189 (Delhi link 2)')[0].keys).toEqual(['250425100161189(DELHILINK2)', '250425100161189']);
+    expect(splitCircuitIds('NA')).toEqual([]);
+    expect(splitCircuitIds('(Noida)')).toEqual([]);
+  });
+});
+
+describe('bracketed notes on bills', () => {
+  const connections = [conn('1', '250425100161189'), conn('2', '260620100264084')];
+
+  it('matches the number inside notes, brackets and symbols', () => {
+    const report = buildVendorCircuitReport([
+      bill('250425100161189 (Delhi link)'),
+      bill('(Noida) 260620100264084'),
+      bill('#260620100264084*'),
+      bill('ID: 250425100161189, (Delhi, Noida)')
+    ], connections);
+    expect(report.summary).toMatchObject({ billedCircuits: 2, billsNotInCrm: 0, billsWithoutCircuitId: 0 });
+    expect(report.billedCircuits.map((r) => r.billCount).sort()).toEqual([2, 2]);
+  });
+
+  it('still reports an unknown number as not in the CRM', () => {
+    const report = buildVendorCircuitReport([bill('999999999 (old link)')], connections);
+    expect(report.notInCrm[0].circuitId).toBe('999999999 (old link)');
+  });
+
+  it('agrees with the unbilled report', () => {
+    const report = buildUnbilledReport([bill('250425100161189 (Delhi)')], connections);
+    expect(report.circuits.map((c) => c.telcoCircuitId)).toEqual(['260620100264084']);
+  });
 });
 
 describe('vendor circuit report', () => {
   const connections = [
     conn('1', '14ILLDEL0098765'),
-    conn('2', 'NEW-ID', { previousTelecoCircuitIds: ['OLD-ID'] }),
-    conn('3', 'DUP', { telcoProvider: 'Airtel' }),
-    conn('4', 'dup', { telcoProvider: 'Jio' })
+    conn('2', 'NEW-200', { previousTelecoCircuitIds: ['OLD-100'] }),
+    conn('3', 'DUP-300', { telcoProvider: 'Airtel' }),
+    conn('4', 'dup300', { telcoProvider: 'Jio' })
   ];
 
   it('marks circuits billed, counts bills, and lists bills not in the CRM', () => {
@@ -63,18 +94,18 @@ describe('vendor circuit report', () => {
   });
 
   it('matches bills carrying an old circuit ID', () => {
-    const report = buildVendorCircuitReport([bill('old id')], connections);
+    const report = buildVendorCircuitReport([bill('old 100')], connections);
     expect(report.billedCircuits[0]).toMatchObject({ fabCircuitId: 'FAB-2', matchedViaPreviousId: true });
   });
 
   it('flags an ID that belongs to more than one connection instead of guessing', () => {
-    const report = buildVendorCircuitReport([bill('DUP')], connections);
+    const report = buildVendorCircuitReport([bill('DUP-300')], connections);
     expect(report.billedCircuits).toHaveLength(0);
     expect(report.ambiguous[0].candidates.map((c) => c.telcoProvider).sort()).toEqual(['Airtel', 'Jio']);
   });
 
   it('prefers a current ID over someone else\'s previous ID', () => {
-    const report = buildVendorCircuitReport([bill('X')], [conn('a', 'X'), conn('b', 'Y', { previousTelecoCircuitIds: ['X'] })]);
+    const report = buildVendorCircuitReport([bill('X9')], [conn('a', 'X9'), conn('b', 'Y9', { previousTelecoCircuitIds: ['X9'] })]);
     expect(report.billedCircuits.map((r) => r.fabCircuitId)).toEqual(['FAB-a']);
   });
 });
@@ -96,8 +127,8 @@ describe('live rates', () => {
 describe('unbilled report', () => {
   it('lists connections no vendor has billed, including those without a circuit ID', () => {
     const report = buildUnbilledReport(
-      [bill('a-1'), bill('old')],
-      [conn('1', 'A1'), conn('2', 'B2'), conn('3', 'C3', { previousTelecoCircuitIds: ['OLD'] }), conn('4', '', { status: 'Disconnected' })]
+      [bill('a-1'), bill('old 7')],
+      [conn('1', 'A1'), conn('2', 'B2'), conn('3', 'C3', { previousTelecoCircuitIds: ['OLD7'] }), conn('4', '', { status: 'Disconnected' })]
     );
     expect(report.summary).toMatchObject({ totalConnections: 4, billed: 2, unbilled: 2, unbilledWithoutCircuitId: 1 });
     expect(report.circuits.map((c) => c.fabCircuitId)).toEqual(['FAB-2', 'FAB-4']);

@@ -4,14 +4,26 @@
 export const normalizeCircuitId = (value) =>
   value === null || value === undefined ? '' : String(value).toUpperCase().replace(/[\s\-./\\]/g, '');
 
-// A bill's circuit field may hold several IDs separated by commas, semicolons or new lines
+// Circuit IDs are numbers, but users add notes around them, e.g. "250425100161189 (Delhi link)".
+// Each run of 5+ digits is a possible ID; shorter runs ("link 2", "(2)") are notes.
+const MIN_ID_DIGITS = 5;
+const digitRuns = (text) => (String(text).match(/\d+/g) || []).filter((d) => d.length >= MIN_ID_DIGITS);
+
+// A bill's circuit field may hold several IDs separated by commas, semicolons or new lines.
+// Each entry gets match keys in order of preference: the whole text normalised, then every number in it.
+// Entries with no digits at all ("NA", "Noida)") are notes, not IDs.
 export const splitCircuitIds = (value) => {
   if (!value) return [];
   const seen = new Set();
   return String(value)
     .split(/[,;\n]+/)
-    .map((raw) => ({ raw: raw.trim(), key: normalizeCircuitId(raw) }))
-    .filter(({ key }) => key && !seen.has(key) && seen.add(key));
+    .map((part) => {
+      const raw = part.trim();
+      const full = normalizeCircuitId(raw);
+      const keys = [...new Set([full, ...digitRuns(raw)])].filter(Boolean);
+      return { raw, key: full, keys };
+    })
+    .filter(({ raw, key }) => key && /\d/.test(raw) && !seen.has(key) && seen.add(key));
 };
 
 const positiveOrNull = (n) => (Number(n) > 0 ? Number(n) : null);
@@ -67,6 +79,15 @@ export const lookupCircuit = (index, key) => {
   return null;
 };
 
+// First key that matches wins: the whole text, then each number found in it
+export const resolveBillCircuit = (index, keys) => {
+  for (const key of keys) {
+    const hit = lookupCircuit(index, key);
+    if (hit) return hit;
+  }
+  return null;
+};
+
 const billSummary = (b, circuitId) => ({
   billId: b._id,
   date: b.date,
@@ -90,8 +111,8 @@ export const buildVendorCircuitReport = (bills, connections) => {
       billsWithoutCircuitId++;
       return;
     }
-    ids.forEach(({ raw, key }) => {
-      const hit = lookupCircuit(index, key);
+    ids.forEach(({ raw, keys }) => {
+      const hit = resolveBillCircuit(index, keys);
       if (!hit) return notInCrm.push(billSummary(b, raw));
       if (hit.matches.length > 1) {
         return ambiguous.push({
@@ -130,20 +151,25 @@ export const buildVendorCircuitReport = (bills, connections) => {
   };
 };
 
-// CRM connections that no vendor bill (any vendor) mentions
+// CRM connections that no vendor bill (any vendor) mentions.
+// Uses the same matching as the vendor report, so both screens agree.
 export const buildUnbilledReport = (allBills, connections) => {
-  const billedKeys = new Set();
-  allBills.forEach((b) => splitCircuitIds(b.logicalCircuitId).forEach(({ key }) => billedKeys.add(key)));
+  const index = buildCircuitIndex(connections);
+  const billedIds = new Set();
+  allBills.forEach((b) => splitCircuitIds(b.logicalCircuitId).forEach(({ keys }) => {
+    const hit = resolveBillCircuit(index, keys);
+    if (hit) hit.matches.forEach((c) => billedIds.add(String(c.crmConnectionId || c._id)));
+  }));
 
   const unbilled = [];
   let billedCount = 0;
   connections.forEach((c) => {
-    const keys = [c.telecoCircuitId, ...(c.previousTelecoCircuitIds || [])].map(normalizeCircuitId).filter(Boolean);
-    if (keys.some((k) => billedKeys.has(k))) {
+    if (billedIds.has(String(c.crmConnectionId || c._id))) {
       billedCount++;
       return;
     }
-    unbilled.push({ ...toCircuitRow(c), noCircuitId: keys.length === 0 });
+    const hasCircuitId = [c.telecoCircuitId, ...(c.previousTelecoCircuitIds || [])].some((id) => normalizeCircuitId(id));
+    unbilled.push({ ...toCircuitRow(c), noCircuitId: !hasCircuitId });
   });
 
   unbilled.sort((a, b) => (a.customerName || '').localeCompare(b.customerName || ''));
