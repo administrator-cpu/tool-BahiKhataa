@@ -42,6 +42,33 @@ describe('circuit ID normalisation', () => {
   });
 });
 
+describe('deleted and cancelled connections', () => {
+  const connections = [
+    conn('1', '11111', { status: 'Active' }),
+    conn('2', '22222', { status: 'Deleted' }),
+    conn('3', '33333', { status: 'Cancelled' }),
+    conn('4', '44444', { status: 'Disconnected' })
+  ];
+
+  it('are not matched, so their IDs show as not in the CRM', () => {
+    const report = buildVendorCircuitReport([bill('11111'), bill('22222'), bill('33333')], connections);
+    expect(report.billedCircuits.map((r) => r.fabCircuitId)).toEqual(['FAB-1']);
+    expect(report.notInCrm.map((b) => b.circuitId)).toEqual(['22222', '33333']);
+  });
+
+  it('are left out of the unbilled list and its totals', () => {
+    const report = buildUnbilledReport([], connections);
+    expect(report.summary.totalConnections).toBe(2);
+    expect(report.circuits.map((c) => c.status).sort()).toEqual(['Active', 'Disconnected']);
+  });
+
+  it('do not make an ID ambiguous', () => {
+    const report = buildVendorCircuitReport([bill('55555')], [conn('a', '55555'), conn('b', '55555', { status: 'Deleted' })]);
+    expect(report.ambiguous).toHaveLength(0);
+    expect(report.billedCircuits[0].fabCircuitId).toBe('FAB-a');
+  });
+});
+
 describe('bracketed notes on bills', () => {
   const connections = [conn('1', '250425100161189'), conn('2', '260620100264084')];
 

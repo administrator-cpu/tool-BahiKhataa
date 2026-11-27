@@ -238,6 +238,7 @@ export default function VendorCircuitBilling({ vendorId, vendorName }) {
 
               <p className="px-5 py-3 text-[11px] text-slate-400 border-t border-slate-100">
                 Rates are per Mb per month, excluding GST. “—” means the CRM has no live rate (e.g. a change is pending).
+                Deleted and Cancelled CRM connections are not matched.
                 CRM data as of {report.crmFetchedAt ? new Date(report.crmFetchedAt).toLocaleTimeString("en-IN") : "—"}.
               </p>
             </>

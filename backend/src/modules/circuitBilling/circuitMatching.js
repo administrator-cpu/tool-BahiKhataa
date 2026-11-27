@@ -52,6 +52,11 @@ export const toCircuitRow = (c) => {
 };
 
 // normalized ID → connections that have it as their current ID / as a previous ID
+// Deleted and Cancelled CRM connections are left out of matching and of the unbilled list
+const EXCLUDED_STATUSES = new Set(['DELETED', 'CANCELLED']);
+export const matchableConnections = (connections) =>
+  connections.filter((c) => !EXCLUDED_STATUSES.has(String(c.status || '').trim().toUpperCase()));
+
 export const buildCircuitIndex = (connections) => {
   const index = new Map();
   const entry = (key) => {
@@ -98,8 +103,8 @@ const billSummary = (b, circuitId) => ({
 });
 
 // One vendor's bills against the CRM
-export const buildVendorCircuitReport = (bills, connections) => {
-  const index = buildCircuitIndex(connections);
+export const buildVendorCircuitReport = (bills, allConnections) => {
+  const index = buildCircuitIndex(matchableConnections(allConnections));
   const billed = new Map();
   const notInCrm = [];
   const ambiguous = [];
@@ -153,7 +158,8 @@ export const buildVendorCircuitReport = (bills, connections) => {
 
 // CRM connections that no vendor bill (any vendor) mentions.
 // Uses the same matching as the vendor report, so both screens agree.
-export const buildUnbilledReport = (allBills, connections) => {
+export const buildUnbilledReport = (allBills, allConnections) => {
+  const connections = matchableConnections(allConnections);
   const index = buildCircuitIndex(connections);
   const billedIds = new Set();
   allBills.forEach((b) => splitCircuitIds(b.logicalCircuitId).forEach(({ keys }) => {
