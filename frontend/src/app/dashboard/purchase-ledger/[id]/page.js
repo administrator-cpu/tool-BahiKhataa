@@ -224,6 +224,9 @@ export default function VendorPurchaseLedgerPage() {
           onCancelEdit={() => setEditingLog(null)}
         />
 
+        {/* CRM circuits this vendor has billed (loads on open); above the table so long ledgers don't bury it */}
+        <VendorCircuitBilling vendorId={vendorId} vendorName={vendorProfile?.companyName} />
+
         {/* Full Width Transaction History */}
         <PurchaseLedgerTable
           ledgerData={ledgerData}
@@ -233,9 +236,6 @@ export default function VendorPurchaseLedgerPage() {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
-
-        {/* CRM circuits this vendor has billed (loads on open) */}
-        <VendorCircuitBilling vendorId={vendorId} vendorName={vendorProfile?.companyName} />
 
       </div>
 

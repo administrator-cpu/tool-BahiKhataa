@@ -201,6 +201,7 @@ export default function UnbilledCircuitsPage() {
 
           <p className="px-5 py-3 text-[11px] text-slate-400 border-t border-slate-100">
             A circuit counts as billed when any vendor bill (not rejected) carries its Logical Circuit ID, current or old.
+            Deleted and Cancelled CRM connections are not included.
             Rates are per Mb per month, excluding GST. CRM data as of {report.crmFetchedAt ? new Date(report.crmFetchedAt).toLocaleTimeString("en-IN") : "—"}.
           </p>
         </div>
