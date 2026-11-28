@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { safeFormatCurrency } from "@/app/common/lib/utils";
@@ -73,11 +72,8 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
             safeVendors.map((vendor, index) => {
               const name = String(vendor?.name || "Unknown");
               return (
-                <motion.div
+                <div
                   key={vendor?.id ?? index}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
                   className={`grid ${COLS} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -122,7 +118,7 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
                       )}
                     </button>
                   </span>
-                </motion.div>
+                </div>
               );
             })
           ) : (

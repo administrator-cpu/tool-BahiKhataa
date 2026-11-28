@@ -16,7 +16,7 @@ import {
   ChevronUp,
   Loader2, // 💡 Added Loader2 for the loading spinner
 } from "lucide-react";
-import { safeFormatCurrency } from "@/app/common/lib/utils";
+import { safeFormatCurrency, formatDate } from "@/app/common/lib/utils";
 import { ledgerService } from "../ledger.service";
 
 export default function LedgerTable({
@@ -104,13 +104,7 @@ export default function LedgerTable({
                     >
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900">
-                          {row.date
-                            ? new Date(row.date).toLocaleDateString("en-IN", {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })
-                            : ""}
+                          {formatDate(row.date)}
                         </p>
                       </td>
 

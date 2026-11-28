@@ -20,6 +20,8 @@ export const authService = {
     const exp = getTokenExpiry(data?.token);
     if (exp) document.cookie = `session_exp=${exp}; path=/; max-age=86400; SameSite=Lax`;
     document.cookie = `role=${userRole}; path=/; max-age=86400; SameSite=Lax`;
+    // AuthContext reads this, so the first dashboard load skips the blocking GET /auth/me
+    localStorage.setItem("userRole", userRole);
     return data?.user;
   },
 

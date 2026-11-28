@@ -2,11 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { customerService } from '../customer.service';
 import { useAuth } from '@/app/common/context/AuthContext';
 
+// Stale-while-revalidate: coming back to the dashboard shows the last list instantly
+// and refreshes it in the background instead of showing skeletons again.
+let cache = { role: null, customers: null };
+
 export function useCustomers() {
   const { userRole, isAuthChecking, logout } = useAuth();
-  
-  const [customers, setCustomers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const cached = cache.role === userRole ? cache.customers : null;
+  const [customers, setCustomers] = useState(cached || []);
+  const [isLoading, setIsLoading] = useState(!cached);
 
   // 💡 NEW: Wrapped in useCallback so we can safely export it for manual refreshing!
   const fetchCustomers = useCallback(async () => {
@@ -17,7 +22,12 @@ export function useCustomers() {
       return;
     }
 
-    setIsLoading(true);
+    if (cache.role === userRole && cache.customers) {
+      setCustomers(cache.customers);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     try {
       let response = userRole === 'employee'
         ? await customerService.getMyCustomers()
@@ -41,6 +51,7 @@ export function useCustomers() {
         crmId: c.crmId || null
       }));
 
+      cache = { role: userRole, customers: formattedData };
       setCustomers(formattedData);
     } catch (error) {
       console.error("Failed to fetch customers:", error);

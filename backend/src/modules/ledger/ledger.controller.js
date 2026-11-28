@@ -8,16 +8,35 @@ import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { assertCustomerAccess } from '../../utils/customerAccess.js';
 import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
+import { getCustomerAgingMap } from '../../utils/aging.js';
+import logger from '../../utils/logger.js';
 
 const toWhole = (num) => Math.trunc(Number(num) || 0);
+
+// Pushes bill payment status to the invoicing app WITHOUT holding the HTTP response.
+// syncInvoicePaymentStatus is already best-effort (it reports its own failures), so the
+// user no longer waits up to 2 x 8s per allocated bill for a remote round trip.
+const syncBillsInBackground = (allocations) => {
+  const billIds = (allocations || []).map(a => a.billId);
+  if (!billIds.length) return;
+  Ledger.find({ _id: { $in: billIds }, invoiceNo: { $nin: [null, ''] } })
+    .select('invoiceNo paymentStatus balanceDue amountPaid')
+    .lean()
+    .then(bills => Promise.allSettled(bills.map(b =>
+      syncInvoicePaymentStatus(b.invoiceNo, b.paymentStatus, b.balanceDue, b.amountPaid, b._id)
+    )))
+    .catch(err => logger.error(`Background invoice sync failed: ${err.message}`));
+};
 
 const processPaymentAllocations = async (paymentLog) => {
   let totalAllocated = 0;
   const appliedAllocations = [];
 
   if (paymentLog.allocations && paymentLog.allocations.length > 0) {
+    const bills = await Ledger.find({ _id: { $in: paymentLog.allocations.map(a => a.billId) } });
+    const billById = new Map(bills.map(b => [b._id.toString(), b]));
     for (const alloc of paymentLog.allocations) {
-      const bill = await Ledger.findById(alloc.billId);
+      const bill = billById.get(alloc.billId?.toString());
 
       // A payment can only settle bills of its own customer
       if (bill && bill.debit > 0 && bill.customer?.toString() === paymentLog.customer?.toString()) {
@@ -407,20 +426,7 @@ export const reviewPendingLog = catchAsync(async (req, res, next) => {
     log.status = 'approved';
     await processPaymentAllocations(log);
     await log.save();
-    if (log.allocations && log.allocations.length > 0) {
-      for (const alloc of log.allocations) {
-        const updatedBill = await Ledger.findById(alloc.billId);
-        if (updatedBill && updatedBill.invoiceNo) {
-          await syncInvoicePaymentStatus(
-            updatedBill.invoiceNo,
-            updatedBill.paymentStatus,
-            updatedBill.balanceDue,
-            updatedBill.amountPaid,
-            updatedBill._id
-          );
-        }
-      }
-    }
+    syncBillsInBackground(log.allocations);
     sendPaymentAdjustmentEmail(log);
   } else if (action === 'reject') {
     if (!rejectionReason) return next(new AppError('Rejection reason is required', 400));
@@ -532,20 +538,7 @@ export const addDirectEntry = catchAsync(async (req, res, next) => {
   if (newEntry.credit > 0 || newEntry.advanceAmount > 0) {
     await processPaymentAllocations(newEntry);
     await newEntry.save();
-    if (preparedAllocations.length > 0) {
-      for (const alloc of preparedAllocations) {
-        const updatedBill = await Ledger.findById(alloc.billId);
-        if (updatedBill && updatedBill.invoiceNo) {
-          await syncInvoicePaymentStatus(
-            updatedBill.invoiceNo,
-            updatedBill.paymentStatus,
-            updatedBill.balanceDue,
-            updatedBill.amountPaid,
-            updatedBill._id
-          );
-        }
-      }
-    }
+    syncBillsInBackground(newEntry.allocations);
     sendPaymentAdjustmentEmail(newEntry);
   }
 
@@ -556,17 +549,21 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
   const { customerId } = req.params;
   if (!customerId) return next(new AppError('Customer ID is required', 400));
 
-  await assertCustomerAccess(req.user, customerId);
+  // One lookup covers the access check and the advance balance (was 2 + 1 inside getAgingReport)
+  const customerDoc = await Customer.findById(customerId).select('availableAdvance manager').lean();
+  if (!customerDoc || (req.user.role !== 'admin' && customerDoc.manager?.toString() !== req.user.id)) {
+    return next(new AppError('Customer not found or not assigned to you', 404));
+  }
 
-  const customerDoc = await Customer.findById(customerId).select('availableAdvance');
-
-  const ledgerData = await Ledger.find({
-    customer: customerId,
-    status: { $in: ['approved', 'pending'] },
-    isUsingAdvance: { $ne: true }
-  }).sort({ date: -1 });
-
-  const agingReport = await Ledger.getAgingReport(customerId);
+  const [ledgerData, agingMap] = await Promise.all([
+    Ledger.find({
+      customer: customerId,
+      status: { $in: ['approved', 'pending'] },
+      isUsingAdvance: { $ne: true }
+    }).select('-__v').sort({ date: -1 }).lean(),
+    getCustomerAgingMap([customerDoc])
+  ]);
+  const agingReport = agingMap.get(String(customerDoc._id));
 
   res.status(200).json({
     status: 'success',
