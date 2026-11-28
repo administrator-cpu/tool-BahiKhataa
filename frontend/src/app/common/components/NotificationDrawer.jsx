@@ -22,7 +22,8 @@ const timeAgo = (dateString) => {
 };
 
 // Fallback currency formatter just in case it's not imported
-const formatMoney = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount || 0);
+const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
+const formatMoney = (amount) => INR.format(amount || 0);
 
 export default function NotificationMenu() {
     const [isOpen, setIsOpen] = useState(false);

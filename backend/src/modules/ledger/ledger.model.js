@@ -89,14 +89,23 @@ ledgerSchema.index({ paymentStatus: 1 });
 ledgerSchema.index({ status: 1, date: 1 });
 ledgerSchema.index({ status: 1, paymentStatus: 1, debit: 1 });
 ledgerSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
+// Open bills only (small, hot subset): serves every aging query without scanning paid history
+ledgerSchema.index(
+  { customer: 1, date: 1 },
+  {
+    name: 'open_bills_by_customer',
+    partialFilterExpression: { status: 'approved', debit: { $gt: 0 }, balanceDue: { $gt: 0 } }
+  }
+);
 
 ledgerSchema.statics.getAgingReport = async function (customerId) {
   const unpaidBills = await this.find({
     customer: customerId,
     status: 'approved',
     debit: { $gt: 0 }, // It must be a bill
+    balanceDue: { $gt: 0 }, // only these are counted below; lets the partial index serve the query
     paymentStatus: { $ne: 'Paid' }
-  });
+  }).select('balanceDue date').lean();
 
   const now = new Date();
   const buckets = {
@@ -124,7 +133,7 @@ ledgerSchema.statics.getAgingReport = async function (customerId) {
   });
 
   const Customer = mongoose.model('Customer');
-  const customer = await Customer.findById(customerId).select('availableAdvance');
+  const customer = await Customer.findById(customerId).select('availableAdvance').lean();
 
   if (customer && customer.availableAdvance > 0) {
     buckets.availableAdvance = customer.availableAdvance;

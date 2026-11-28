@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useDeferredValue } from "react";
 import {
   Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase,
   FileSpreadsheet, Bell, Filter, Calendar, X, Network,
@@ -123,7 +123,8 @@ export default function UnifiedDashboard() {
       ? (row?.aging?.thirtyPlus || 0) + (row?.aging?.sixtyPlus || 0) + (row?.aging?.ninetyPlus || 0) > 0
       : (row?.d30 || 0) + (row?.d60 || 0) + (row?.d90 || 0) > 0;
 
-  const q = searchQuery.trim().toLowerCase();
+  const deferredQuery = useDeferredValue(searchQuery);
+  const q = deferredQuery.trim().toLowerCase();
 
   const visibleCustomers = useMemo(
     () =>

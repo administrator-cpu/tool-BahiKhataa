@@ -2,6 +2,7 @@ import Vendor from './vendor.model.js';
 import PurchaseLedger from '../PurchaseLedger/purchaseLedger.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
+import { getVendorAgingMap } from '../../utils/aging.js';
 
 /**
  * @description Create a new vendor
@@ -87,21 +88,16 @@ export const getAllVendors = catchAsync(async (req, res, next) => {
  * @route POST /api/v1/vendor
  */
 export const getVendorsDashboard = catchAsync(async (req, res, next) => {
-  const vendors = await Vendor.find().lean();
+  const vendors = await Vendor.find().select('companyName email availableAdvance').lean();
+  const agingMap = await getVendorAgingMap(vendors);
 
-  const dashboardData = await Promise.all(
-    vendors.map(async (vendor) => {
-      const aging = await PurchaseLedger.getAgingReport(vendor._id);
-
-      return {
-        id: vendor._id,
-        name: vendor.companyName,
-        email: vendor.email,
-        availableAdvance: vendor.availableAdvance,
-        aging: aging
-      };
-    })
-  );
+  const dashboardData = vendors.map((vendor) => ({
+    id: vendor._id,
+    name: vendor.companyName,
+    email: vendor.email,
+    availableAdvance: vendor.availableAdvance,
+    aging: agingMap.get(String(vendor._id))
+  }));
 
   res.status(200).json({
     status: "success",

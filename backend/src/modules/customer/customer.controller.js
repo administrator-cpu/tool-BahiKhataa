@@ -6,6 +6,20 @@ import excel from "exceljs";
 import PDFDocument from 'pdfkit-table';
 import { crmClient } from "../../utils/crmClient.js";
 import { assertCustomerAccess } from "../../utils/customerAccess.js";
+import { getCustomerAgingMap } from "../../utils/aging.js";
+
+const DASHBOARD_FIELDS = "companyName email manager crmId availableAdvance";
+
+const toDashboardRow = (customer, agingMap) => ({
+  id: customer._id,
+  name: customer.companyName,
+  email: customer.email,
+  managerName: customer.manager ? customer.manager.name : "Unassigned",
+  managerId: customer.manager ? customer.manager._id : "",
+  aging: agingMap.get(String(customer._id)),
+  isCrmLinked: !!customer.crmId,
+  crmId: customer.crmId || null
+});
 
 export const getCRMProfileForCreation = catchAsync(async (req, res, next) => {
   const { crmId } = req.params;
@@ -175,8 +189,10 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
     return next(new AppError("You can only view your own portfolio", 403));
   }
   const targetManager = req.query.manager || req.user.id;
-  const customers = await Customer.find({ manager: targetManager }).lean().populate("manager", "name email");
-
+  const customers = await Customer.find({ manager: targetManager })
+    .select(DASHBOARD_FIELDS)
+    .populate("manager", "name email")
+    .lean();
 
   if (!customers.length) {
     return res.status(200).json({
@@ -185,28 +201,12 @@ export const getPortfolioDashboard = catchAsync(async (req, res, next) => {
     });
   }
 
-  const portfolio = await Promise.all(
-    customers.map(async (customer) => {
-      const aging = await Ledger.getAgingReport(customer._id);
-
-      return {
-        id: customer._id,
-        name: customer.companyName,
-        email: customer.email,
-        managerName: customer.manager ? customer.manager.name : "Unassigned",
-        managerId: customer.manager ? customer.manager._id : "",
-        aging: aging,
-        isCrmLinked: !!customer.crmId,
-        crmId: customer.crmId || null
-      };
-    }),
-  );
-
   const customerIds = customers.map((c) => c._id);
-  const pendingCount = await Ledger.countDocuments({
-    customer: { $in: customerIds },
-    status: "pending",
-  });
+  const [agingMap, pendingCount] = await Promise.all([
+    getCustomerAgingMap(customers),
+    Ledger.countDocuments({ customer: { $in: customerIds }, status: "pending" }),
+  ]);
+  const portfolio = customers.map((c) => toDashboardRow(c, agingMap));
 
   res.status(200).json({
     status: "success",
@@ -227,24 +227,14 @@ export const getMainDashboard = catchAsync(async (req, res, next) => {
     query.manager = req.user.id;
   }
 
-  const customers = await Customer.find(query).populate("manager", "name email").lean();
-  // const totalCustomers = await Customer.countDocuments(query);
+  const customers = await Customer.find(query)
+    .select(DASHBOARD_FIELDS)
+    .populate("manager", "name email")
+    .lean();
 
-  const dashboardData = await Promise.all(
-    customers.map(async (customer) => {
-      const aging = await Ledger.getAgingReport(customer._id);
-      return {
-        id: customer._id,
-        name: customer.companyName,
-        email: customer.email,
-        managerName: customer.manager ? customer.manager.name : "Unassigned",
-        managerId: customer.manager ? customer.manager._id : "",
-        aging: aging,
-        isCrmLinked: !!customer.crmId,
-        crmId: customer.crmId || null
-      };
-    })
-  );
+  // One aggregation for every customer instead of 2 queries per customer
+  const agingMap = await getCustomerAgingMap(customers, { scoped: req.user.role !== "admin" });
+  const dashboardData = customers.map((c) => toDashboardRow(c, agingMap));
 
   res.status(200).json({
     status: "success",

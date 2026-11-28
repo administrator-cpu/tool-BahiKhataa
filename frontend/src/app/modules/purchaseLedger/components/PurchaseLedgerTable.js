@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-import { safeFormatCurrency } from "@/app/common/lib/utils";
+import { safeFormatCurrency, formatDate, formatMonthYear } from "@/app/common/lib/utils";
 import { purchaseLedgerService } from "../purchaseLedger.service";
 
 export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEditClick }) {
@@ -72,7 +72,7 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
 
   const groupedLedger = [];
   ledgerData.forEach((row) => {
-    const monthYear = new Date(row.date).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+    const monthYear = formatMonthYear(row.date);
     const lastGroup = groupedLedger[groupedLedger.length - 1];
 
     if (lastGroup && lastGroup.monthYear === monthYear) {
@@ -130,7 +130,7 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                         <tr className="transition-colors hover:bg-slate-50/50 group">
                           <td className="px-6 py-4">
                             <p className="font-bold text-slate-900">
-                              {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                              {formatDate(row.date)}
                             </p>
                           </td>
 

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
 import { ArrowRight, CheckCircle2, Link as LinkIcon, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -92,11 +91,8 @@ export default function CustomerTable({
               const name = String(customer?.company || customer?.companyName || "Unknown");
               const id = customer?.id ?? index;
               return (
-                <motion.div
+                <div
                   key={id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
                   className={`grid ${cols} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -160,7 +156,7 @@ export default function CustomerTable({
                       )}
                     </button>
                   </span>
-                </motion.div>
+                </div>
               );
             })
           ) : (
