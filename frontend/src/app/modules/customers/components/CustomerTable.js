@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { ArrowRight, CheckCircle2, Link as LinkIcon, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { prefetchCustomerLedger } from "@/app/common/lib/ledgerPrefetch";
 
 import { safeFormatCurrency } from "@/app/common/lib/utils";
 import { useCustomerTotals } from "../hooks/useCustomerTotals";
@@ -93,6 +94,8 @@ export default function CustomerTable({
               return (
                 <div
                   key={id}
+                  onPointerEnter={() => prefetchCustomerLedger(router, customer?.id)}
+                  onFocus={() => prefetchCustomerLedger(router, customer?.id)}
                   className={`grid ${cols} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">

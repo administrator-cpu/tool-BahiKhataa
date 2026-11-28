@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import User from '../modules/auth/user.model.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import { getCachedUser, setCachedUser } from '../utils/userCache.js';
 
 export const protect = catchAsync(async (req, res, next) => {
   let token;
@@ -23,7 +24,11 @@ export const protect = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid token. Please log in again!', 401));
   }
 
-  const currentUser = await User.findById(decoded.id);
+  let currentUser = getCachedUser(decoded.id);
+  if (!currentUser) {
+    currentUser = await User.findById(decoded.id);
+    if (currentUser) setCachedUser(decoded.id, currentUser);
+  }
   if (!currentUser) {
     return next(new AppError('The user belonging to this token does no longer exist.', 401));
   }

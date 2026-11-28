@@ -57,14 +57,20 @@ export const getCustomerAgingMap = async (parties, { scoped = true } = {}) => {
 };
 
 /** Vendor variant: negative balances (debit notes) count, and always land in "current". */
-export const getVendorAgingMap = async (parties) => {
-  if (!parties.length) return new Map();
+export const getVendorAgingRows = (vendorIds = null) => {
   const PurchaseLedger = mongoose.model('PurchaseLedger');
-
-  const rows = await PurchaseLedger.aggregate([
-    { $match: { status: 'approved', credit: { $ne: 0 }, paymentStatus: { $ne: 'Paid' }, balanceDue: { $ne: 0 } } },
+  const match = { status: 'approved', credit: { $ne: 0 }, paymentStatus: { $ne: 'Paid' }, balanceDue: { $ne: 0 } };
+  if (vendorIds) match.vendor = { $in: vendorIds };
+  return PurchaseLedger.aggregate([
+    { $match: match },
     { $project: { vendor: 1, balanceDue: 1, days: ageDays } },
     bucketGroup('vendor', { $or: [{ $lt: ['$balanceDue', 0] }, { $lte: ['$days', 30] }] }),
   ]);
-  return toBuckets(parties, rows);
 };
+
+export const getVendorAgingMap = async (parties) => {
+  if (!parties.length) return new Map();
+  return toBuckets(parties, await getVendorAgingRows());
+};
+
+export { toBuckets };

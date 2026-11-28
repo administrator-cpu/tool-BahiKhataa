@@ -22,6 +22,7 @@ import LedgerTable from '@/app/modules/ledger/components/LedgerTable';
 import SalesPaymentForm from '@/app/modules/ledger/components/SalesPaymentForm';
 import EditCustomerModal from '@/app/modules/customers/components/EditCustomerModal';
 import RejectLogModal from '@/app/modules/ledger/components/RejectLogModal';
+import RevalidatingBadge from '@/app/common/components/RevalidatingBadge';
 
 export default function CustomerLedger() {
   const { id: customerId } = useParams();
@@ -37,6 +38,7 @@ export default function CustomerLedger() {
 
   const {
     isLoading,
+    isRevalidating,
     customerProfile,
     ledgerData,
     agingTotals,
@@ -263,6 +265,7 @@ export default function CustomerLedger() {
 
   return (
     <DashboardLayout breadcrumbs={<span className="font-bold">Ledger Overview</span>}>
+      <RevalidatingBadge show={isRevalidating} />
 
       {isEditModalOpen && (
         <EditCustomerModal

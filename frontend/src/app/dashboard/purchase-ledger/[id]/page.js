@@ -13,42 +13,66 @@ import PurchaseLedgerForm from "@/app/modules/purchaseLedger/components/Purchase
 import PurchaseLedgerTable from "@/app/modules/purchaseLedger/components/PurchaseLedgerTable";
 import EditVendorModal from "@/app/modules/Vendor/comnponents/EditVendorModal";
 import VendorCircuitBilling from "@/app/modules/circuitBilling/components/VendorCircuitBilling";
+import RevalidatingBadge from "@/app/common/components/RevalidatingBadge";
+import { peek, load, isFresh, invalidate } from "@/app/common/lib/swrCache";
+import { vendorLedgerKey, fetchVendorLedger } from "@/app/common/lib/ledgerPrefetch";
 
 export default function VendorPurchaseLedgerPage() {
   const params = useParams();
   const vendorId = params.id;
   const router = useRouter();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [ledgerData, setLedgerData] = useState([]);
-  const [totals, setTotals] = useState({ outstanding: 0, availableAdvance: 0 });
-  const [aging, setAging] = useState(null);
+  // Paint from the hover-prefetched response when we have one (same server data, just earlier)
+  const ledgerKey = vendorLedgerKey(vendorId);
+  const [cachedAtMount] = useState(() => peek(ledgerKey));
+  const [isLoading, setIsLoading] = useState(!cachedAtMount);
+  const [isRevalidating, setIsRevalidating] = useState(!!cachedAtMount && !isFresh(ledgerKey));
+  const [ledgerData, setLedgerData] = useState(cachedAtMount?.data?.transactions || []);
+  const [totals, setTotals] = useState(cachedAtMount?.data?.totals || { outstanding: 0, availableAdvance: 0 });
+  const [aging, setAging] = useState(cachedAtMount?.data?.aging || null);
   const [editingLog, setEditingLog] = useState(null);
-  const [vendorProfile, setVendorProfile] = useState(null);
+  const [vendorProfile, setVendorProfile] = useState(cachedAtMount?.data?.vendorProfile || null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
+  const applyLedger = useCallback((res) => {
+    setLedgerData(res.data.transactions || []);
+    setTotals(res.data.totals);
+    setAging(res.data.aging);
+    setVendorProfile(res.data.vendorProfile);
+  }, []);
+
+  // After any write: drop the cache and load fresh, exactly as before
   const fetchLedger = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await purchaseLedgerService.getVendorDashboard(vendorId);
-
-      setLedgerData(res.data.transactions || []);
-      setTotals(res.data.totals);
-      setAging(res.data.aging);
-      setVendorProfile(res.data.vendorProfile);
-
+      invalidate(vendorLedgerKey(vendorId));
+      const res = await load(vendorLedgerKey(vendorId), () => fetchVendorLedger(vendorId));
+      applyLedger(res);
     } catch (error) {
       console.error(error);
       toast.error("Failed to load purchase ledger.");
     } finally {
       setIsLoading(false);
     }
-  }, [vendorId]);
+  }, [vendorId, applyLedger]);
 
+  // First load: joins the in-flight hover prefetch instead of starting a second request
   useEffect(() => {
-    if (vendorId) fetchLedger();
-  }, [fetchLedger, vendorId]);
+    if (!vendorId) return;
+    const key = vendorLedgerKey(vendorId);
+    if (isFresh(key)) return;
+    load(key, () => fetchVendorLedger(vendorId))
+      .then(applyLedger)
+      .catch((error) => {
+        console.error(error);
+        toast.error("Failed to load purchase ledger.");
+      })
+      .finally(() => {
+        setIsLoading(false);
+        setIsRevalidating(false);
+      });
+  }, [vendorId, applyLedger]);
 
   const unpaidBills = ledgerData.filter(log => log.credit > 0 && log.balanceDue > 0 && log.status === 'approved');
 
@@ -210,6 +234,8 @@ export default function VendorPurchaseLedgerPage() {
           </div>
         </div>
       </div>
+
+      <RevalidatingBadge show={isRevalidating} />
 
       {/* 🚀 VERTICAL STACK: Full Width Form & Table */}
       <div className="flex flex-col gap-6">

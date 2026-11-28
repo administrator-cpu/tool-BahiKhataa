@@ -6,6 +6,8 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import compression from 'compression';
+// Registers the Mongoose timing plugin; must run before the route/model imports below
+import { serverTiming } from './middlewares/serverTiming.js';
 
 import logger from './utils/logger.js';
 import AppError from './utils/AppError.js';
@@ -71,6 +73,7 @@ app.use(cors(corsOptions));
 
 app.options(/.*/, cors(corsOptions));
 app.use(compression({ threshold: 1024 }));
+app.use(serverTiming);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(sanitizeRequest);

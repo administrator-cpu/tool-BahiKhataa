@@ -5,6 +5,8 @@ import Vendor from '../Vendor/vendor.model.js';
 import AppError from '../../utils/AppError.js';
 import catchAsync from '../../utils/catchAsync.js';
 import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
+import { getVendorAgingRows, toBuckets } from '../../utils/aging.js';
+import mongoose from 'mongoose';
 
 // 🛠️ HELPER: Strict truncation
 const toWhole = (num) => Math.trunc(Number(num) || 0);
@@ -279,16 +281,22 @@ export const deleteLedgerEntry = catchAsync(async (req, res, next) => {
 // ==========================================
 export const getVendorDashboard = catchAsync(async (req, res, next) => {
   const { vendorId } = req.params;
-  const vendorDoc = await Vendor.findById(vendorId).lean();
+  if (!mongoose.isValidObjectId(vendorId)) return next(new AppError('Vendor not found', 404));
+
+  // The three reads are independent: run them in one round trip instead of four in a row
+  const [vendorDoc, ledgerData, agingRows] = await Promise.all([
+    Vendor.findById(vendorId).lean(),
+    PurchaseLedger.find({
+      vendor: vendorId,
+      status: 'approved',
+      isUsingAdvance: { $ne: true }
+    }).select('-__v').sort({ date: -1 }).lean(),
+    getVendorAgingRows([new mongoose.Types.ObjectId(vendorId)])
+  ]);
   if (!vendorDoc) return next(new AppError('Vendor not found', 404));
 
-  const ledgerData = await PurchaseLedger.find({
-    vendor: vendorId,
-    status: 'approved',
-    isUsingAdvance: { $ne: true }
-  }).sort({ date: -1 });
-
-  const agingReport = await PurchaseLedger.getAgingReport(vendorId);
+  // Same buckets as PurchaseLedger.getAgingReport (parity-tested), minus the extra queries
+  const agingReport = toBuckets([vendorDoc], agingRows).get(String(vendorDoc._id));
 
   res.status(200).json({
     status: 'success',

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { clearUserCache } from '../../utils/userCache.js';
 
 const userSchema = new mongoose.Schema({
   name: {
@@ -59,6 +60,14 @@ userSchema.methods.correctPassword = async function (candidatePassword, userPass
 };
 
 userSchema.index({ updatedAt: 1, _id: 1 }); // sync API paging
+
+// Any change to users invalidates the auth cache used by `protect`
+userSchema.post(['save', 'deleteOne'], { document: true, query: false }, clearUserCache);
+userSchema.post(
+  ['findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'updateOne', 'updateMany', 'replaceOne', 'deleteOne', 'deleteMany'],
+  { document: false, query: true },
+  clearUserCache
+);
 
 const User = mongoose.model('User', userSchema);
 export default User;
