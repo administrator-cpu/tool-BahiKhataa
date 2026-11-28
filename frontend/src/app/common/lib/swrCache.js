@@ -6,10 +6,16 @@
 
 const store = new Map();
 const inflight = new Map();
-const FRESH_MS = 5000;      // younger than this: use as-is, no refetch on mount
-const MAX_STALE_MS = 60000; // older than this: never painted, always refetched
+export const FRESH_MS = 5000; // younger than this: use as-is, no refetch on mount
+const MAX_STALE_MS = 60000;   // older than this: never painted, always refetched
+
+// Until the first page load has hydrated, components must render exactly what the server
+// HTML contains, so cached data is only offered for painting after that (see CacheReady).
+let hydrated = false;
+export const markHydrated = () => { hydrated = true; };
 
 export const peek = (key) => {
+  if (!hydrated) return undefined;
   const hit = store.get(key);
   return hit && Date.now() - hit.at < MAX_STALE_MS ? hit.data : undefined;
 };
@@ -38,3 +44,10 @@ export function prefetch(key, fetcher) {
 }
 
 export const invalidate = (key) => store.delete(key);
+
+// For rarely-changing lists (e.g. employees): reuse a response younger than ttlMs.
+export function cachedLoad(key, fetcher, ttlMs) {
+  const hit = store.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return Promise.resolve(hit.data);
+  return load(key, fetcher);
+}

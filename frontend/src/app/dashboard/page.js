@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useDeferredValue } from "react";
+import React, { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import {
   Search, Plus, Users, Loader2, LogOut, ChartLine, Building2, Briefcase,
   FileSpreadsheet, Bell, Filter, Calendar, X, Network,
@@ -11,6 +11,9 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../common/context/AuthContext";
 import { useCustomers } from "../modules/customers/hooks/useCustomers";
 import { vendorService } from "../modules/Vendor/vendor.service";
+import { peek, load } from "@/app/common/lib/swrCache";
+
+const VENDORS_KEY = "vendors-dashboard";
 import { purchaseLedgerService } from "../modules/purchaseLedger/purchaseLedger.service";
 
 import Button from "../common/components/Button";
@@ -30,7 +33,9 @@ export default function UnifiedDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
 
-  const [vendors, setVendors] = useState([]);
+  // Last vendor list paints instantly; a fresh one is always fetched behind it
+  const [vendors, setVendors] = useState(() => peek(VENDORS_KEY)?.data?.vendors || []);
+  const vendorsRequested = useRef(false);
   const [isVendorsLoading, setIsVendorsLoading] = useState(false);
   const [isTdsLoading, setIsTdsLoading] = useState(false);
   const [tdsDone, setTdsDone] = useState(false);
@@ -54,11 +59,12 @@ export default function UnifiedDashboard() {
   };
 
   useEffect(() => {
-    if (userRole === "admin" && isPay && vendors.length === 0) {
+    if (userRole === "admin" && isPay && !vendorsRequested.current) {
+      vendorsRequested.current = true;
       (async () => {
-        setIsVendorsLoading(true);
+        if (!peek(VENDORS_KEY)) setIsVendorsLoading(true);
         try {
-          const res = await vendorService.getVendorsDashboard();
+          const res = await load(VENDORS_KEY, () => vendorService.getVendorsDashboard());
           setVendors(res.data.vendors);
         } catch (error) {
           console.error("Failed to load vendors", error);
@@ -67,7 +73,7 @@ export default function UnifiedDashboard() {
         }
       })();
     }
-  }, [isPay, userRole, vendors.length]);
+  }, [isPay, userRole]);
 
   const handleDownloadTDS = async (isFull) => {
     const params = isFull ? {} : { fromDate: tdsDates.fromDate, toDate: tdsDates.toDate };

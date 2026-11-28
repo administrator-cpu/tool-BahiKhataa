@@ -1,5 +1,7 @@
+import { preconnect } from "react-dom";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import CacheReady from "@/app/common/components/CacheReady";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "./common/context/AuthContext";
 import UpdateNotifier from "./common/components/UpdateNotifier";
@@ -68,7 +70,18 @@ export const metadata = {
   },
 };
 
+// Open the connection to the API (DNS + TLS) while the page's JavaScript is still loading,
+// so the first ledger request doesn't pay for it.
+const API_ORIGIN = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_API_URL || "").origin;
+  } catch {
+    return null;
+  }
+})();
+
 export default function RootLayout({ children }) {
+  if (API_ORIGIN) preconnect(API_ORIGIN, { crossOrigin: "use-credentials" });
   return (
     <html
       lang="en"
@@ -78,6 +91,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>{children}</AuthProvider>
         <Toaster position="top-center" reverseOrder={false} />
         <UpdateNotifier />
+        <CacheReady />
       </body>
     </html>
   );

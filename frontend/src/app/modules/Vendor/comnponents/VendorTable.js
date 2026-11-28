@@ -3,7 +3,9 @@
 import React, { useState } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { prefetchVendorLedger } from "@/app/common/lib/ledgerPrefetch";
+import { prefetchVendorLedger, hoverPrefetch } from "@/app/common/lib/ledgerPrefetch";
+import { useProgressiveList } from "@/app/common/lib/useProgressiveList";
+import { useInfiniteScroll } from "@/app/common/lib/useInfiniteScroll";
 import { safeFormatCurrency } from "@/app/common/lib/utils";
 
 const COLS = "grid-cols-[2.8fr_1.05fr_1fr_0.85fr_0.85fr_1fr_0.5fr]";
@@ -41,6 +43,9 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
   const router = useRouter();
   const [openingId, setOpeningId] = useState(null);
   const safeVendors = Array.isArray(vendors) ? vendors : [];
+  // Draw rows in chunks as the user scrolls; totals above still use the full list
+  const rows = useProgressiveList(safeVendors);
+  const moreRowsRef = useInfiniteScroll(rows.showMore, rows.hasMore);
 
   const totals = safeVendors.reduce(
     (acc, curr) => ({
@@ -70,13 +75,13 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
           {isLoading ? (
             Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)
           ) : safeVendors.length ? (
-            safeVendors.map((vendor, index) => {
+            <>
+            {rows.visible.map((vendor, index) => {
               const name = String(vendor?.name || "Unknown");
               return (
                 <div
                   key={vendor?.id ?? index}
-                  onPointerEnter={() => prefetchVendorLedger(router, vendor?.id)}
-                  onFocus={() => prefetchVendorLedger(router, vendor?.id)}
+                  {...hoverPrefetch(() => prefetchVendorLedger(router, vendor?.id))}
                   className={`grid ${COLS} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -123,7 +128,9 @@ export default function VendorTable({ vendors = [], isLoading = false }) {
                   </span>
                 </div>
               );
-            })
+            })}
+            {rows.hasMore && <div ref={moreRowsRef} className="h-10" aria-hidden="true" />}
+            </>
           ) : (
             <div className="px-[22px] py-14 text-center">
               <div className="text-[15px] font-bold text-[#101014]">No vendors found</div>

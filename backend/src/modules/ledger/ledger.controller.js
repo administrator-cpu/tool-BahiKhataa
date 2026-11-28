@@ -10,6 +10,7 @@ import { assertCustomerAccess } from '../../utils/customerAccess.js';
 import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
 import { getCustomerAgingMap } from '../../utils/aging.js';
 import logger from '../../utils/logger.js';
+import { parseLimit, decodeCursor, readPage, readColumnTotals, PAGE_SORT } from '../../utils/ledgerPaging.js';
 
 const toWhole = (num) => Math.trunc(Number(num) || 0);
 
@@ -177,10 +178,11 @@ export const getPendingQueue = catchAsync(async (req, res, next) => {
     filter.customer = { $in: myCustomerIds };
   }
 
-  const logs = await Ledger.find(filter).populate({
-    path: 'customer',
-    select: 'companyName'
-  });
+  // Only the fields the approvals drawer shows
+  const logs = await Ledger.find(filter)
+    .select('credit debit customer description status bankInfo createdAt updatedAt')
+    .populate({ path: 'customer', select: 'companyName' })
+    .lean();
 
   res.status(200).json({ status: 'success', data: { logs } });
 });
@@ -555,12 +557,53 @@ export const getCustomerDashboard = catchAsync(async (req, res, next) => {
     return next(new AppError('Customer not found or not assigned to you', 404));
   }
 
+  const baseFilter = {
+    customer: customerDoc._id,
+    status: { $in: ['approved', 'pending'] },
+    isUsingAdvance: { $ne: true }
+  };
+
+  // Paged mode (?limit=N[&cursor=...]). Without `limit` the response is exactly as before.
+  if (req.query.limit !== undefined || req.query.cursor !== undefined) {
+    const limit = parseLimit(req.query.limit);
+    const position = req.query.cursor ? decodeCursor(req.query.cursor) : null;
+    if (req.query.cursor && !position) return next(new AppError('Invalid cursor', 400));
+
+    // Next page while scrolling: rows only
+    if (position) {
+      const page = await readPage(Ledger, baseFilter, { limit, cursor: position });
+      return res.status(200).json({ status: 'success', data: { transactions: page.rows, nextCursor: page.nextCursor } });
+    }
+
+    const [page, columnTotals, unpaidBills, agingMap] = await Promise.all([
+      readPage(Ledger, baseFilter, { limit }),
+      // Whole-history totals, same rule as the table footer used: approved rows only
+      readColumnTotals(Ledger, baseFilter, { approvedOnly: true }),
+      // Same filter the payment forms applied to the full history in the browser
+      Ledger.find({ ...baseFilter, status: 'approved', debit: { $gt: 0 }, balanceDue: { $gt: 0 } })
+        .select('-__v').sort(PAGE_SORT).lean(),
+      getCustomerAgingMap([customerDoc])
+    ]);
+    const agingReport = agingMap.get(String(customerDoc._id));
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        transactions: page.rows,
+        nextCursor: page.nextCursor,
+        columnTotals,
+        unpaidBills,
+        totals: {
+          outstanding: toWhole(agingReport.total),
+          availableAdvance: toWhole(customerDoc.availableAdvance)
+        },
+        aging: agingReport
+      }
+    });
+  }
+
   const [ledgerData, agingMap] = await Promise.all([
-    Ledger.find({
-      customer: customerId,
-      status: { $in: ['approved', 'pending'] },
-      isUsingAdvance: { $ne: true }
-    }).select('-__v').sort({ date: -1 }).lean(),
+    Ledger.find(baseFilter).select('-__v').sort({ date: -1 }).lean(),
     getCustomerAgingMap([customerDoc])
   ]);
   const agingReport = agingMap.get(String(customerDoc._id));

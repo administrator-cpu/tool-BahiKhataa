@@ -4,7 +4,6 @@ import React, { useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { UploadCloud, Download, CheckCircle, AlertCircle, Save, ArrowLeft, FileSpreadsheet, ArrowDown } from "lucide-react";
 import toast from "react-hot-toast";
-import * as XLSX from "xlsx";
 
 import Button from "@/app/common/components/Button";
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -52,6 +51,8 @@ export default function BulkUploadPage() {
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target.result);
+        // The spreadsheet library (~110 KB gzipped) loads only when a file is actually picked
+        const XLSX = await import("xlsx");
         const workbook = XLSX.read(data, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];

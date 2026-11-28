@@ -7,6 +7,7 @@ import catchAsync from '../../utils/catchAsync.js';
 import { deleteWithTombstone } from '../sync/deleteWithTombstone.js';
 import { getVendorAgingRows, toBuckets } from '../../utils/aging.js';
 import mongoose from 'mongoose';
+import { parseLimit, decodeCursor, readPage, readColumnTotals, PAGE_SORT } from '../../utils/ledgerPaging.js';
 
 // 🛠️ HELPER: Strict truncation
 const toWhole = (num) => Math.trunc(Number(num) || 0);
@@ -283,15 +284,56 @@ export const getVendorDashboard = catchAsync(async (req, res, next) => {
   const { vendorId } = req.params;
   if (!mongoose.isValidObjectId(vendorId)) return next(new AppError('Vendor not found', 404));
 
+  const vendorObjectId = new mongoose.Types.ObjectId(vendorId);
+  const baseFilter = { vendor: vendorObjectId, status: 'approved', isUsingAdvance: { $ne: true } };
+
+  // Paged mode (?limit=N[&cursor=...]). Without `limit` the response is exactly as before.
+  if (req.query.limit !== undefined || req.query.cursor !== undefined) {
+    const limit = parseLimit(req.query.limit);
+    const position = req.query.cursor ? decodeCursor(req.query.cursor) : null;
+    if (req.query.cursor && !position) return next(new AppError('Invalid cursor', 400));
+
+    // Next page while scrolling: rows only
+    if (position) {
+      const page = await readPage(PurchaseLedger, baseFilter, { limit, cursor: position });
+      return res.status(200).json({ status: 'success', data: { transactions: page.rows, nextCursor: page.nextCursor } });
+    }
+
+    const [vendorDoc, page, columnTotals, unpaidBills, agingRows] = await Promise.all([
+      Vendor.findById(vendorId).lean(),
+      readPage(PurchaseLedger, baseFilter, { limit }),
+      // Whole-history totals, same rule as the table footer used: every row
+      readColumnTotals(PurchaseLedger, baseFilter, { approvedOnly: false }),
+      // Same filter the payment form applied to the full history in the browser
+      PurchaseLedger.find({ ...baseFilter, credit: { $gt: 0 }, balanceDue: { $gt: 0 } })
+        .select('-__v').sort(PAGE_SORT).lean(),
+      getVendorAgingRows([vendorObjectId])
+    ]);
+    if (!vendorDoc) return next(new AppError('Vendor not found', 404));
+    const agingReport = toBuckets([vendorDoc], agingRows).get(String(vendorDoc._id));
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        vendorProfile: vendorDoc,
+        transactions: page.rows,
+        nextCursor: page.nextCursor,
+        columnTotals,
+        unpaidBills,
+        totals: {
+          outstanding: toWhole(agingReport.total),
+          availableAdvance: toWhole(vendorDoc.availableAdvance)
+        },
+        aging: agingReport
+      }
+    });
+  }
+
   // The three reads are independent: run them in one round trip instead of four in a row
   const [vendorDoc, ledgerData, agingRows] = await Promise.all([
     Vendor.findById(vendorId).lean(),
-    PurchaseLedger.find({
-      vendor: vendorId,
-      status: 'approved',
-      isUsingAdvance: { $ne: true }
-    }).select('-__v').sort({ date: -1 }).lean(),
-    getVendorAgingRows([new mongoose.Types.ObjectId(vendorId)])
+    PurchaseLedger.find(baseFilter).select('-__v').sort({ date: -1 }).lean(),
+    getVendorAgingRows([vendorObjectId])
   ]);
   if (!vendorDoc) return next(new AppError('Vendor not found', 404));
 

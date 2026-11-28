@@ -104,6 +104,8 @@ const purchaseLedgerSchema = new mongoose.Schema({
 });
 
 purchaseLedgerSchema.index({ vendor: 1, date: -1 });
+purchaseLedgerSchema.index({ vendor: 1, date: -1, _id: -1 }); // ledger paging (stable order)
+purchaseLedgerSchema.index({ vendor: 1, status: 1, paymentStatus: 1 }); // per-vendor ageing
 purchaseLedgerSchema.index({ status: 1 });
 purchaseLedgerSchema.index({ paymentStatus: 1 });
 purchaseLedgerSchema.index({ status: 1, paymentStatus: 1, credit: 1 });

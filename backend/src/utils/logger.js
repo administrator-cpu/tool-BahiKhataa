@@ -55,7 +55,9 @@ const logger = winston.createLogger({
   ),
 
   transports: [
-    new winston.transports.Console({
+    // Console writes are synchronous on Windows and stall the server under load, so in
+    // production only the log files are written (set LOG_TO_CONSOLE=true to keep the console).
+    ...(process.env.NODE_ENV === "production" && process.env.LOG_TO_CONSOLE !== "true" ? [] : [new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize({ all: true }),
         winston.format.errors({ stack: true }),
@@ -64,7 +66,7 @@ const logger = winston.createLogger({
         }),
         logFormat
       ),
-    }),
+    })]),
 
     new winston.transports.File({
       filename: "logs/error.log",

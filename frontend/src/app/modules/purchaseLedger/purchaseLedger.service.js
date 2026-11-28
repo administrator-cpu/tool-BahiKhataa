@@ -5,8 +5,12 @@ export const purchaseLedgerService = {
     return await apiClient.post('/purchase-ledger/entry', entryData);
   },
 
-  getVendorDashboard: async (vendorId) => {
-    const { data } = await apiClient.get(`/purchase-ledger/vendor/${vendorId}/dashboard`);
+  // With { limit[, cursor] } the server pages the history (see ledgerPaging.js)
+  getVendorDashboard: async (vendorId, { limit, cursor } = {}) => {
+    const params = {};
+    if (limit) params.limit = limit;
+    if (cursor) params.cursor = cursor;
+    const { data } = await apiClient.get(`/purchase-ledger/vendor/${vendorId}/dashboard`, { params });
     return data;
   },
 
