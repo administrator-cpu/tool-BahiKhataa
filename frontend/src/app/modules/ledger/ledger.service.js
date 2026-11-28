@@ -24,8 +24,12 @@ export const ledgerService = {
     return await apiClient.patch(`/ledger/review/${logId}`, { action, rejectionReason });
   },
 
-  getCustomerDashboard: async (customerId) => {
-    const { data } = await apiClient.get(`/ledger/${customerId}/dashboard`);
+  // With { limit[, cursor] } the server pages the history (see ledgerPaging.js)
+  getCustomerDashboard: async (customerId, { limit, cursor } = {}) => {
+    const params = {};
+    if (limit) params.limit = limit;
+    if (cursor) params.cursor = cursor;
+    const { data } = await apiClient.get(`/ledger/${customerId}/dashboard`, { params });
     return data;
   },
 

@@ -3,7 +3,9 @@
 import React, { useState } from "react";
 import { ArrowRight, CheckCircle2, Link as LinkIcon, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { prefetchCustomerLedger } from "@/app/common/lib/ledgerPrefetch";
+import { prefetchCustomerLedger, hoverPrefetch } from "@/app/common/lib/ledgerPrefetch";
+import { useProgressiveList } from "@/app/common/lib/useProgressiveList";
+import { useInfiniteScroll } from "@/app/common/lib/useInfiniteScroll";
 
 import { safeFormatCurrency } from "@/app/common/lib/utils";
 import { useCustomerTotals } from "../hooks/useCustomerTotals";
@@ -61,6 +63,9 @@ export default function CustomerTable({
 
   const safeCustomers = Array.isArray(customers) ? customers : [];
   const totals = useCustomerTotals(safeCustomers);
+  // Draw rows in chunks as the user scrolls; totals above still use the full list
+  const rows = useProgressiveList(safeCustomers);
+  const moreRowsRef = useInfiniteScroll(rows.showMore, rows.hasMore);
 
   const openLedger = (id) => {
     setOpeningId(id);
@@ -88,14 +93,14 @@ export default function CustomerTable({
           {isLoading ? (
             Array.from({ length: 8 }).map((_, i) => <RowSkeleton key={i} cols={cols} />)
           ) : safeCustomers.length ? (
-            safeCustomers.map((customer, index) => {
+            <>
+            {rows.visible.map((customer, index) => {
               const name = String(customer?.company || customer?.companyName || "Unknown");
               const id = customer?.id ?? index;
               return (
                 <div
                   key={id}
-                  onPointerEnter={() => prefetchCustomerLedger(router, customer?.id)}
-                  onFocus={() => prefetchCustomerLedger(router, customer?.id)}
+                  {...hoverPrefetch(() => prefetchCustomerLedger(router, customer?.id))}
                   className={`grid ${cols} items-center gap-2.5 border-b border-[#F3EFE6] px-[22px] py-[13px] transition-colors hover:bg-[#FFF9EC]`}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -161,7 +166,9 @@ export default function CustomerTable({
                   </span>
                 </div>
               );
-            })
+            })}
+            {rows.hasMore && <div ref={moreRowsRef} className="h-10" aria-hidden="true" />}
+            </>
           ) : (
             <div className="px-[22px] py-14 text-center">
               <div className="text-[15px] font-bold text-[#101014]">Nothing matches</div>

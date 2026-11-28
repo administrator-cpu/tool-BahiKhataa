@@ -9,6 +9,9 @@ import DashboardLayout from "@/app/common/layout/DashboardLayout";
 import Button from "@/app/common/components/Button";
 import { useAuth } from "@/app/common/context/AuthContext";
 import { circuitBillingService } from "@/app/modules/circuitBilling/circuitBilling.service";
+import { peek, load as loadCached, invalidate } from "@/app/common/lib/swrCache";
+
+const UNBILLED_KEY = "unbilled-circuits";
 import {
   formatRate, formatBandwidth, formatDate, matchesSearch, STATUS_STYLES, circuitExportRow, downloadSheet,
 } from "@/app/modules/circuitBilling/circuitFormat";
@@ -19,8 +22,8 @@ export default function UnbilledCircuitsPage() {
   const router = useRouter();
   const { userRole, isAuthChecking } = useAuth();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [report, setReport] = useState(null);
+  const [isLoading, setIsLoading] = useState(() => !peek(UNBILLED_KEY));
+  const [report, setReport] = useState(() => peek(UNBILLED_KEY)?.data || null);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -28,10 +31,11 @@ export default function UnbilledCircuitsPage() {
   const [hideNoCircuitId, setHideNoCircuitId] = useState(false);
 
   const load = useCallback(async (refresh = false) => {
-    setIsLoading(true);
+    if (refresh || !peek(UNBILLED_KEY)) setIsLoading(true);
     setError(null);
     try {
-      const res = await circuitBillingService.getUnbilledCircuits({ refresh });
+      if (refresh) invalidate(UNBILLED_KEY);
+      const res = await loadCached(UNBILLED_KEY, () => circuitBillingService.getUnbilledCircuits({ refresh }));
       setReport(res.data);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load unbilled circuits.");

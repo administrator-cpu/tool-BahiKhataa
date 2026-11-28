@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Building2, Loader2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard, UploadCloud, Download, FileSpreadsheet } from "lucide-react"
+import { Building2, IndianRupee, AlertCircle, Edit, MapPin, Mail, FileText, CreditCard, UploadCloud, Download, FileSpreadsheet } from "lucide-react"
 import toast from "react-hot-toast";
 
 import DashboardLayout from "@/app/common/layout/DashboardLayout";
@@ -14,8 +14,11 @@ import PurchaseLedgerTable from "@/app/modules/purchaseLedger/components/Purchas
 import EditVendorModal from "@/app/modules/Vendor/comnponents/EditVendorModal";
 import VendorCircuitBilling from "@/app/modules/circuitBilling/components/VendorCircuitBilling";
 import RevalidatingBadge from "@/app/common/components/RevalidatingBadge";
-import { peek, load, isFresh, invalidate } from "@/app/common/lib/swrCache";
-import { vendorLedgerKey, fetchVendorLedger } from "@/app/common/lib/ledgerPrefetch";
+import { peek, load, isFresh, invalidate, cachedLoad, FRESH_MS } from "@/app/common/lib/swrCache";
+import { vendorLedgerKey, fetchVendorLedger, fetchVendorLedgerPage, startEarlyLedgerFetch, LEDGER_PAGE_SIZE } from "@/app/common/lib/ledgerPrefetch";
+import LedgerPageSkeleton from "@/app/common/components/LedgerPageSkeleton";
+
+startEarlyLedgerFetch();
 
 export default function VendorPurchaseLedgerPage() {
   const params = useParams();
@@ -32,37 +35,76 @@ export default function VendorPurchaseLedgerPage() {
   const [aging, setAging] = useState(cachedAtMount?.data?.aging || null);
   const [editingLog, setEditingLog] = useState(null);
   const [vendorProfile, setVendorProfile] = useState(cachedAtMount?.data?.vendorProfile || null);
+  // Paging + whole-history figures computed on the server (same rules as before)
+  const [columnTotals, setColumnTotals] = useState(cachedAtMount?.data?.columnTotals || null);
+  const [unpaidBills, setUnpaidBills] = useState(cachedAtMount?.data?.unpaidBills || []);
+  const [nextCursor, setNextCursor] = useState(cachedAtMount?.data?.nextCursor || null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const generation = useRef(0); // bumps on every full reload so a late "load more" can't append stale rows
+  const loadedRows = useRef(0);  // rows on screen, read by refresh without re-creating it
+  useEffect(() => { loadedRows.current = ledgerData.length; }, [ledgerData.length]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   const applyLedger = useCallback((res) => {
+    generation.current += 1;
     setLedgerData(res.data.transactions || []);
+    setNextCursor(res.data.nextCursor || null);
+    setColumnTotals(res.data.columnTotals || null);
+    setUnpaidBills(res.data.unpaidBills || []);
     setTotals(res.data.totals);
     setAging(res.data.aging);
     setVendorProfile(res.data.vendorProfile);
   }, []);
 
-  // After any write: drop the cache and load fresh, exactly as before
+  // After any write: drop the cache and load fresh from the server. The current figures stay
+  // on screen (with an "Updating" badge) instead of blanking the page, and as many rows as
+  // are loaded are fetched again so the scroll position holds.
   const fetchLedger = useCallback(async () => {
+    const limit = Math.min(Math.max(LEDGER_PAGE_SIZE, loadedRows.current), 500);
     try {
-      setIsLoading(true);
+      setIsRevalidating(true);
       invalidate(vendorLedgerKey(vendorId));
-      const res = await load(vendorLedgerKey(vendorId), () => fetchVendorLedger(vendorId));
+      const res = await load(vendorLedgerKey(vendorId), () => fetchVendorLedger(vendorId, limit));
       applyLedger(res);
     } catch (error) {
       console.error(error);
       toast.error("Failed to load purchase ledger.");
     } finally {
       setIsLoading(false);
+      setIsRevalidating(false);
     }
   }, [vendorId, applyLedger]);
+
+  // Infinite scroll: next 50 rows (display only; totals and unpaid bills come from the server)
+  const loadMore = useCallback(async () => {
+    if (!vendorId || !nextCursor || isLoadingMore) return;
+    const startedIn = generation.current;
+    setIsLoadingMore(true);
+    try {
+      const res = await fetchVendorLedgerPage(vendorId, nextCursor);
+      if (startedIn !== generation.current) return;
+      const more = res?.data?.transactions || [];
+      setLedgerData((rows) => {
+        const seen = new Set(rows.map((r) => String(r._id)));
+        return rows.concat(more.filter((r) => !seen.has(String(r._id))));
+      });
+      setNextCursor(res?.data?.nextCursor || null);
+    } catch (error) {
+      console.error(error);
+      toast.error("Couldn't load older entries.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [vendorId, nextCursor, isLoadingMore]);
 
   // First load: joins the in-flight hover prefetch instead of starting a second request
   useEffect(() => {
     if (!vendorId) return;
     const key = vendorLedgerKey(vendorId);
-    if (isFresh(key)) return;
-    load(key, () => fetchVendorLedger(vendorId))
+    if (cachedAtMount && isFresh(key)) return; // already painted from a fresh copy
+    // Reuses a just-finished early/hover fetch, joins one in flight, or fetches
+    cachedLoad(key, () => fetchVendorLedger(vendorId), FRESH_MS)
       .then(applyLedger)
       .catch((error) => {
         console.error(error);
@@ -72,17 +114,14 @@ export default function VendorPurchaseLedgerPage() {
         setIsLoading(false);
         setIsRevalidating(false);
       });
-  }, [vendorId, applyLedger]);
+  }, [vendorId, applyLedger, cachedAtMount]);
 
-  const unpaidBills = ledgerData.filter(log => log.credit > 0 && log.balanceDue > 0 && log.status === 'approved');
+  // unpaidBills: same filter as before (credit > 0, balanceDue > 0, approved), applied on the server to the full history
 
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex flex-col items-center justify-center h-[60vh]">
-          <Loader2 size={40} className="animate-spin text-purple-600 mb-4" />
-          <p className="text-slate-500 font-medium">Loading AP Ledger...</p>
-        </div>
+        <LedgerPageSkeleton />
       </DashboardLayout>
     );
   }
@@ -256,6 +295,10 @@ export default function VendorPurchaseLedgerPage() {
         {/* Full Width Transaction History */}
         <PurchaseLedgerTable
           ledgerData={ledgerData}
+          columnTotals={columnTotals}
+          hasMore={!!nextCursor}
+          isLoadingMore={isLoadingMore}
+          onLoadMore={loadMore}
           onRefresh={fetchLedger}
           onEditClick={(log) => {
             setEditingLog(log);

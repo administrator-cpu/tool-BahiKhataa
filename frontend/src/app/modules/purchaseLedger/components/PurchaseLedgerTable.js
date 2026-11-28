@@ -16,8 +16,9 @@ import toast from "react-hot-toast";
 
 import { safeFormatCurrency, formatDate, formatMonthYear } from "@/app/common/lib/utils";
 import { purchaseLedgerService } from "../purchaseLedger.service";
+import LoadMoreRow from "@/app/common/components/LoadMoreRow";
 
-export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEditClick }) {
+export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEditClick, columnTotals = null, hasMore = false, isLoadingMore = false, onLoadMore }) {
   const [expandedId, setExpandedId] = useState(null);
   const [expandedDetails, setExpandedDetails] = useState(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -31,8 +32,9 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
     }));
   };
 
-  const approvedDebitTotal = ledgerData.reduce((sum, row) => sum + (Number(row.debit) || 0), 0);
-  const approvedCreditTotal = ledgerData.reduce((sum, row) => sum + (Number(row.credit) || 0), 0);
+  // Same rule either way; when paged, the server applies it to the full history
+  const approvedDebitTotal = columnTotals ? columnTotals.debit : ledgerData.reduce((sum, row) => sum + (Number(row.debit) || 0), 0);
+  const approvedCreditTotal = columnTotals ? columnTotals.credit : ledgerData.reduce((sum, row) => sum + (Number(row.credit) || 0), 0);
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this AP entry? This will reverse the math and update balances instantly.")) return;
@@ -343,6 +345,7 @@ export default function PurchaseLedgerTable({ ledgerData = [], onRefresh, onEdit
                 </td>
               </tr>
             )}
+            <LoadMoreRow colSpan={6} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={onLoadMore} />
           </tbody>
 
           {/* TFOOT */}

@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import compression from 'compression';
 // Registers the Mongoose timing plugin; must run before the route/model imports below
@@ -26,9 +27,24 @@ import circuitBillingRoutes from './modules/circuitBilling/circuitBilling.routes
 
 const app = express();
 
+// Logged-in users are limited per account, so an office sharing one IP doesn't hit the cap.
+// Anything without a valid login token is still limited per IP.
+const rateLimitKey = (req) => {
+  const header = req.headers.authorization;
+  const token = header && header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (token) {
+    try {
+      const { id } = jwt.verify(token, process.env.JWT_SECRET);
+      if (id) return `user:${id}`;
+    } catch { /* fall through to IP */ }
+  }
+  return ipKeyGenerator(req.ip);
+};
+
 const limiter = rateLimit({
-  max: 100, // Limit each IP to 100 requests
+  max: 300, // per user (or per IP when not logged in)
   windowMs: 2 * 60 * 1000, // 2 minutes
+  keyGenerator: rateLimitKey,
   message: 'Too many requests from this IP, please try again in 15 minutes!',
   skip: (req) => {
     // /api/sync has its own limiter (see sync.routes.js)

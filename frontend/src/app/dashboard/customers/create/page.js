@@ -27,6 +27,7 @@ import Button from "@/app/common/components/Button";
 // Hook & Services
 import { useCreateCustomer } from "@/app/modules/customers/hooks/useCreateCustomer";
 import { userService } from "@/app/modules/users/user.service";
+import { cachedLoad } from "@/app/common/lib/swrCache";
 import { customerService } from "@/app/modules/customers/customer.service";
 import toast from "react-hot-toast";
 import { useAuth } from "@/app/common/context/AuthContext";
@@ -57,7 +58,7 @@ export default function CreateCustomerPage() {
   // Fetch Managers
   const fetchManagers = async () => {
     try {
-      const { data } = await userService.getEmployees();
+      const { data } = await cachedLoad('employees', () => userService.getEmployees(), 5 * 60 * 1000);
       setActiveManagers(data?.data?.users || data?.users || []);
     } catch (error) {
       console.error(error);

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { safeFormatCurrency, formatDate } from "@/app/common/lib/utils";
 import { ledgerService } from "../ledger.service";
+import LoadMoreRow from "@/app/common/components/LoadMoreRow";
 
 export default function LedgerTable({
   ledgerData = [],
@@ -28,6 +29,10 @@ export default function LedgerTable({
   onApprove,
   onReject,
   currentUserRole,
+  columnTotals = null, // whole-history totals from the server when the ledger is paged
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }) {
   const [expandedId, setExpandedId] = useState(null);
 
@@ -35,11 +40,12 @@ export default function LedgerTable({
   const [expandedDetails, setExpandedDetails] = useState(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
-  const approvedDebitTotal = ledgerData.reduce((sum, row) => {
+  // Same rule either way; when paged, the server applies it to the full history
+  const approvedDebitTotal = columnTotals ? columnTotals.debit : ledgerData.reduce((sum, row) => {
     return row.status === "approved" ? sum + (Number(row.debit) || 0) : sum;
   }, 0);
 
-  const approvedCreditTotal = ledgerData.reduce((sum, row) => {
+  const approvedCreditTotal = columnTotals ? columnTotals.credit : ledgerData.reduce((sum, row) => {
     return row.status === "approved" ? sum + (Number(row.credit) || 0) : sum;
   }, 0);
 
@@ -434,6 +440,7 @@ export default function LedgerTable({
                 </td>
               </tr>
             )}
+            <LoadMoreRow colSpan={5} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={onLoadMore} />
           </tbody>
 
           {/* TFOOT */}

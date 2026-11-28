@@ -1,3 +1,4 @@
+import { invalidate } from "@/app/common/lib/swrCache";
 import apiClient from "@/app/common/lib/apiClient";
 
 // Reads the `exp` claim (seconds) from a JWT without verifying it
@@ -34,7 +35,9 @@ export const authService = {
       role: userData.role === "sales" ? "employee" : "admin",
     };
 
-    return await apiClient.post("/auth/create-employee", payload);
+    const response = await apiClient.post("/auth/create-employee", payload);
+    invalidate("employees"); // new employee must show up in manager pickers right away
+    return response;
   },
 
   logout: async () => {

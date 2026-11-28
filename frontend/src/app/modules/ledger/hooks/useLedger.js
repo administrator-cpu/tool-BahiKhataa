@@ -1,9 +1,9 @@
 // src/app/modules/ledger/hooks/useLedger.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ledgerService } from '../ledger.service';
 import toast from 'react-hot-toast';
-import { peek, load, isFresh, invalidate } from '@/app/common/lib/swrCache';
-import { customerLedgerKey, fetchCustomerLedger } from '@/app/common/lib/ledgerPrefetch';
+import { peek, load, isFresh, invalidate, cachedLoad, FRESH_MS } from '@/app/common/lib/swrCache';
+import { customerLedgerKey, fetchCustomerLedger, fetchCustomerLedgerPage, LEDGER_PAGE_SIZE } from '@/app/common/lib/ledgerPrefetch';
 
 // Pure field mapping of the two API responses (unchanged from the original fetch)
 const mapLedgerResponses = ([ledgerRes, profileRes]) => {
@@ -11,6 +11,10 @@ const mapLedgerResponses = ([ledgerRes, profileRes]) => {
   const dbCustomer = profileRes?.data?.data?.customer || profileRes?.data?.customer;
   return {
     transactions: ledgerRes?.data?.transactions || [],
+    // Paging + whole-history figures computed on the server (same rules as before)
+    nextCursor: ledgerRes?.data?.nextCursor || null,
+    columnTotals: ledgerRes?.data?.columnTotals || null,
+    unpaidBills: ledgerRes?.data?.unpaidBills || [],
     totals: ledgerRes?.data?.totals || { outstanding: 0, availableAdvance: 0 },
     aging: {
       current: backendAging.current || 0,
@@ -41,6 +45,13 @@ export function useLedger(customerId, currentUserRole) {
   const [ledgerData, setLedgerData] = useState(cachedAtMount?.transactions || []);
   const [dashboardTotals, setDashboardTotals] = useState(cachedAtMount?.totals || { outstanding: 0, availableAdvance: 0 });
   const [agingTotals, setAgingTotals] = useState(cachedAtMount?.aging || { current: 0, d30: 0, d60: 0, d90: 0 });
+  const [columnTotals, setColumnTotals] = useState(cachedAtMount?.columnTotals || null);
+  const [unpaidInvoices, setUnpaidInvoices] = useState(cachedAtMount?.unpaidBills || []);
+  const [nextCursor, setNextCursor] = useState(cachedAtMount?.nextCursor || null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const generation = useRef(0); // bumps on every full reload so a late "load more" can't append stale rows
+  const loadedRows = useRef(0);  // rows on screen, read by refresh without re-creating loaders
+  useEffect(() => { loadedRows.current = ledgerData.length; }, [ledgerData.length]);
 
   const [editingId, setEditingId] = useState(null);
   const [adminFormData, setAdminFormData] = useState({ 
@@ -51,7 +62,11 @@ export function useLedger(customerId, currentUserRole) {
 
   const applyLedger = useCallback((responses) => {
     const mapped = mapLedgerResponses(responses);
+    generation.current += 1;
     setLedgerData(mapped.transactions);
+    setNextCursor(mapped.nextCursor);
+    setColumnTotals(mapped.columnTotals);
+    setUnpaidInvoices(mapped.unpaidBills);
     setDashboardTotals(mapped.totals);
     setAgingTotals(mapped.aging);
     if (mapped.profile) setCustomerProfile(mapped.profile);
@@ -62,8 +77,12 @@ export function useLedger(customerId, currentUserRole) {
     if (!customerId) return;
     const key = customerLedgerKey(customerId);
     try {
+      // After a write, reload as many rows as are on screen so the scroll position holds
+      const limit = fresh ? Math.min(Math.max(LEDGER_PAGE_SIZE, loadedRows.current), 500) : LEDGER_PAGE_SIZE;
+      const fetcher = () => fetchCustomerLedger(customerId, limit);
       if (fresh) invalidate(key);
-      applyLedger(await load(key, () => fetchCustomerLedger(customerId)));
+      // First load reuses a just-finished early/hover fetch or joins one in flight
+      applyLedger(await (fresh ? load(key, fetcher) : cachedLoad(key, fetcher, FRESH_MS)));
     } catch (error) {
       console.error("Ledger Fetch Error:", error);
       toast.error("Failed to load ledger data.");
@@ -75,12 +94,34 @@ export function useLedger(customerId, currentUserRole) {
 
   const fetchLedgerData = useCallback(() => loadLedger(true), [loadLedger]);
 
+  // Infinite scroll: next 50 rows (display only; totals and unpaid bills come from the server)
+  const loadMore = useCallback(async () => {
+    if (!customerId || !nextCursor || isLoadingMore) return;
+    const startedIn = generation.current;
+    setIsLoadingMore(true);
+    try {
+      const res = await fetchCustomerLedgerPage(customerId, nextCursor);
+      if (startedIn !== generation.current) return;
+      const more = res?.data?.transactions || [];
+      setLedgerData((rows) => {
+        const seen = new Set(rows.map((r) => String(r._id)));
+        return rows.concat(more.filter((r) => !seen.has(String(r._id))));
+      });
+      setNextCursor(res?.data?.nextCursor || null);
+    } catch (error) {
+      console.error("Ledger page fetch error:", error);
+      toast.error("Couldn't load older entries.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [customerId, nextCursor, isLoadingMore]);
+
   // First load: joins the in-flight hover prefetch instead of starting a second request
   useEffect(() => {
     if (!customerId || !currentUserRole) return;
-    if (isFresh(customerLedgerKey(customerId))) return;
+    if (cachedAtMount && isFresh(customerLedgerKey(customerId))) return; // already painted from a fresh copy
     loadLedger(false);
-  }, [customerId, currentUserRole, loadLedger]);
+  }, [customerId, currentUserRole, loadLedger, cachedAtMount]);
 
 const handleEditClick = (row) => {
     setEditingId(row?._id || row?.id);
@@ -165,6 +206,11 @@ const handleEditClick = (row) => {
   return {
     isLoading,
     isRevalidating,
+    columnTotals,
+    unpaidInvoices,
+    hasMore: !!nextCursor,
+    isLoadingMore,
+    loadMore,
     customerProfile,
     ledgerData,
     agingTotals,

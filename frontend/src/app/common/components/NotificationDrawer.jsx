@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, CheckCheck, Circle, CreditCard, FileText, Info, X, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ledgerService } from '@/app/modules/ledger/ledger.service';
+import { peek, load } from '@/app/common/lib/swrCache';
 import { useRouter } from 'next/navigation';
 
 // Helper to calculate "5 mins ago", "2 hours ago", etc.
@@ -25,44 +26,50 @@ const timeAgo = (dateString) => {
 const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
 const formatMoney = (amount) => INR.format(amount || 0);
 
+// Transform backend data into UI Notifications (unchanged mapping, now shared with the cache)
+const toNotifications = (logs) => {
+    const formattedNotifications = logs.map(item => {
+        const isCredit = Number(item.credit) > 0;
+        const amount = isCredit ? item.credit : item.debit;
+        const company = item.customer?.companyName || 'Unknown Customer';
+        
+        let title = 'New Notification';
+        let message = item.description || 'View details';
+        let type = 'info';
+
+        // Format based on the pending status
+        if (item.status === 'pending') {
+            title = isCredit ? 'Pending Payment Approval' : 'Pending Invoice Approval';
+            message = `${company} has a pending ${isCredit ? 'payment' : 'bill'} of ${formatMoney(amount)} via ${item.bankInfo?.bankName || 'System'}.`;
+            type = 'pending';
+        }
+
+        return {
+            id: item._id,
+            type: type,
+            title: title,
+            message: message,
+            time: timeAgo(item.updatedAt || item.createdAt),
+            isRead: false,
+            customerId: item.customer?._id || item.customer?.id // Grab the customer ID for redirection
+        };
+    });
+    return formattedNotifications;
+};
+
+const PENDING_KEY = 'pending-queue';
+
 export default function NotificationMenu() {
     const [isOpen, setIsOpen] = useState(false);
-    const [notifications, setNotifications] = useState([]);
+    const [notifications, setNotifications] = useState(() => toNotifications(peek(PENDING_KEY)?.data?.data?.logs || []));
     const router = useRouter();
 
     const loadq = async () => {
         try {
-            const { data } = await ledgerService.getPendingQueue();
+            const { data } = await load(PENDING_KEY, () => ledgerService.getPendingQueue());
             const logs = data?.data?.logs || [];
 
-            // Transform backend data into UI Notifications
-            const formattedNotifications = logs.map(item => {
-                const isCredit = Number(item.credit) > 0;
-                const amount = isCredit ? item.credit : item.debit;
-                const company = item.customer?.companyName || 'Unknown Customer';
-                
-                let title = 'New Notification';
-                let message = item.description || 'View details';
-                let type = 'info';
-
-                // Format based on the pending status
-                if (item.status === 'pending') {
-                    title = isCredit ? 'Pending Payment Approval' : 'Pending Invoice Approval';
-                    message = `${company} has a pending ${isCredit ? 'payment' : 'bill'} of ${formatMoney(amount)} via ${item.bankInfo?.bankName || 'System'}.`;
-                    type = 'pending';
-                }
-
-                return {
-                    id: item._id,
-                    type: type,
-                    title: title,
-                    message: message,
-                    time: timeAgo(item.updatedAt || item.createdAt),
-                    isRead: false,
-                    customerId: item.customer?._id || item.customer?.id // Grab the customer ID for redirection
-                };
-            });
-
+            const formattedNotifications = toNotifications(logs);
             setNotifications(formattedNotifications);
         } catch (error) {
             console.error("Failed to fetch notifications:", error);

@@ -84,6 +84,7 @@ const ledgerSchema = new mongoose.Schema({
 });
 
 ledgerSchema.index({ customer: 1, date: -1 });
+ledgerSchema.index({ customer: 1, date: -1, _id: -1 }); // ledger paging (stable order)
 ledgerSchema.index({ status: 1 });
 ledgerSchema.index({ paymentStatus: 1 });
 ledgerSchema.index({ status: 1, date: 1 });

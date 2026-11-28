@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Receipt, UserCircle, MapPin, Loader2, Info, Edit, FileSpreadsheet, FileDown } from 'lucide-react';
+import { Receipt, UserCircle, MapPin, Info, Edit, FileSpreadsheet, FileDown } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 // Layout & Context
@@ -9,6 +9,11 @@ import DashboardLayout from '@/app/common/layout/DashboardLayout';
 import { useAuth } from '@/app/common/context/AuthContext';
 import { useLedger } from '@/app/modules/ledger/hooks/useLedger';
 import { useAsyncAction } from '@/app/common/hooks/useAsyncAction';
+import LedgerPageSkeleton from '@/app/common/components/LedgerPageSkeleton';
+import { startEarlyLedgerFetch } from '@/app/common/lib/ledgerPrefetch';
+import { cachedLoad } from '@/app/common/lib/swrCache';
+
+startEarlyLedgerFetch();
 
 // Services & Utils
 import { ledgerService } from '@/app/modules/ledger/ledger.service';
@@ -39,6 +44,11 @@ export default function CustomerLedger() {
   const {
     isLoading,
     isRevalidating,
+    columnTotals,
+    unpaidInvoices,
+    hasMore,
+    isLoadingMore,
+    loadMore,
     customerProfile,
     ledgerData,
     agingTotals,
@@ -55,7 +65,7 @@ export default function CustomerLedger() {
 
   useEffect(() => {
     if (currentUserRole === 'admin') {
-      userService.getEmployees()
+      cachedLoad('employees', () => userService.getEmployees(), 5 * 60 * 1000)
         .then(res => {
           const allUsers = res?.data?.data?.users || res?.data?.users || [];
           setEmployees(allUsers);
@@ -221,7 +231,7 @@ export default function CustomerLedger() {
     ).catch(() => { });
   };
 
-  const unpaidInvoices = ledgerData.filter(row => row.debit > 0 && row.balanceDue > 0 && row.status === 'approved');
+  // unpaidInvoices: same filter as before (debit > 0, balanceDue > 0, approved), applied on the server to the full history
 
   const handlePayClick = (row) => {
     resetForms();
@@ -256,9 +266,7 @@ export default function CustomerLedger() {
   if (isLoading || !customerProfile) {
     return (
       <DashboardLayout>
-        <div className="flex justify-center py-20">
-          <Loader2 className="animate-spin text-blue-600" size={32} />
-        </div>
+        <LedgerPageSkeleton />
       </DashboardLayout>
     );
   }
@@ -410,6 +418,10 @@ export default function CustomerLedger() {
           onApprove={handleApproveLog}
           onReject={handleRejectClick}
           agingTotals={agingTotals}
+          columnTotals={columnTotals}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
+          onLoadMore={loadMore}
         />
       </div>
 

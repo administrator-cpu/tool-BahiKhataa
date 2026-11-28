@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { customerService } from '../customer.service';
 import { userService } from '../../users/user.service';
+import { cachedLoad } from '@/app/common/lib/swrCache';
 import { useAuth } from '@/app/common/context/AuthContext';
 import { useAsyncAction } from '@/app/common/hooks/useAsyncAction';
 
@@ -32,7 +33,7 @@ export function useCreateCustomer() {
     if (user.role === 'admin' || userRole === 'admin') {
       const fetchManagers = async () => {
         try {
-          const { data } = await userService.getEmployees();
+          const { data } = await cachedLoad('employees', () => userService.getEmployees(), 5 * 60 * 1000);
           setActiveManagers(data?.data?.users || data?.users || []);
         } catch (error) {
           console.error(error);
