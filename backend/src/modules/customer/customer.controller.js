@@ -166,13 +166,15 @@ export const getAllCustomers = catchAsync(async (req, res, next) => {
 });
 
 export const getCustomerById = catchAsync(async (req, res, next) => {
-  await assertCustomerAccess(req.user, req.params.id);
-
+  // One read covers both the access check and the profile (was a separate lookup first)
   const customer = await Customer.findById(req.params.id).populate(
     "manager",
     "name",
   );
 
+  if (req.user.role !== "admin" && (!customer || customer.manager?._id?.toString() !== req.user.id)) {
+    return next(new AppError("Customer not found or not assigned to you", 404));
+  }
   if (!customer) {
     return next(new AppError("No customer found with that ID", 404));
   }

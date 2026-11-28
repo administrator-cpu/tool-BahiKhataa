@@ -1,15 +1,46 @@
 // src/app/modules/ledger/hooks/useLedger.js
 import { useState, useEffect, useCallback } from 'react';
 import { ledgerService } from '../ledger.service';
-import { customerService } from '../../customers/customer.service';
 import toast from 'react-hot-toast';
+import { peek, load, isFresh, invalidate } from '@/app/common/lib/swrCache';
+import { customerLedgerKey, fetchCustomerLedger } from '@/app/common/lib/ledgerPrefetch';
+
+// Pure field mapping of the two API responses (unchanged from the original fetch)
+const mapLedgerResponses = ([ledgerRes, profileRes]) => {
+  const backendAging = ledgerRes?.data?.aging || {};
+  const dbCustomer = profileRes?.data?.data?.customer || profileRes?.data?.customer;
+  return {
+    transactions: ledgerRes?.data?.transactions || [],
+    totals: ledgerRes?.data?.totals || { outstanding: 0, availableAdvance: 0 },
+    aging: {
+      current: backendAging.current || 0,
+      d30: backendAging.thirtyPlus || 0,
+      d60: backendAging.sixtyPlus || 0,
+      d90: backendAging.ninetyPlus || 0
+    },
+    profile: dbCustomer ? {
+      company: dbCustomer.companyName || 'Unknown',
+      gst: dbCustomer.gstNumber || 'N/A',
+      address: dbCustomer.address || 'N/A',
+      email: dbCustomer.email || '',
+      manager: dbCustomer.manager?.name || 'Unassigned',
+      managerId: dbCustomer.manager?._id || ''
+    } : null
+  };
+};
 
 export function useLedger(customerId, currentUserRole) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [customerProfile, setCustomerProfile] = useState(null);
-  const [ledgerData, setLedgerData] = useState([]);
-  const [dashboardTotals, setDashboardTotals] = useState({ outstanding: 0, availableAdvance: 0 });
-  const [agingTotals, setAgingTotals] = useState({ current: 0, d30: 0, d60: 0, d90: 0 });
+  // Paint from the hover-prefetched response when we have one (same server data, just earlier)
+  const [cachedAtMount] = useState(() => {
+    const hit = customerId ? peek(customerLedgerKey(customerId)) : undefined;
+    return hit ? mapLedgerResponses(hit) : null;
+  });
+  const [isLoading, setIsLoading] = useState(!cachedAtMount?.profile);
+  const [isRevalidating, setIsRevalidating] = useState(!!cachedAtMount && !isFresh(customerLedgerKey(customerId)));
+  const [customerProfile, setCustomerProfile] = useState(cachedAtMount?.profile || null);
+  const [ledgerData, setLedgerData] = useState(cachedAtMount?.transactions || []);
+  const [dashboardTotals, setDashboardTotals] = useState(cachedAtMount?.totals || { outstanding: 0, availableAdvance: 0 });
+  const [agingTotals, setAgingTotals] = useState(cachedAtMount?.aging || { current: 0, d30: 0, d60: 0, d90: 0 });
 
   const [editingId, setEditingId] = useState(null);
   const [adminFormData, setAdminFormData] = useState({ 
@@ -18,51 +49,38 @@ export function useLedger(customerId, currentUserRole) {
   });
   const [salesFormData, setSalesFormData] = useState({ date: '', amount: '', utr: '', bank: '', remarks: '', billId: "", allocations: [], isUsingAdvance: false });
 
-  const fetchLedgerData = useCallback(async () => {
+  const applyLedger = useCallback((responses) => {
+    const mapped = mapLedgerResponses(responses);
+    setLedgerData(mapped.transactions);
+    setDashboardTotals(mapped.totals);
+    setAgingTotals(mapped.aging);
+    if (mapped.profile) setCustomerProfile(mapped.profile);
+  }, []);
+
+  // `fresh` (refresh after a write) drops the cached copy first, so it always hits the server
+  const loadLedger = useCallback(async (fresh) => {
     if (!customerId) return;
+    const key = customerLedgerKey(customerId);
     try {
-      const [ledgerRes, profileRes] = await Promise.all([
-        ledgerService.getCustomerDashboard(customerId),
-        customerService.getCustomerById(customerId)
-      ]);
-
-      const transactions = ledgerRes?.data?.transactions || [];
-      const backendAging = ledgerRes?.data?.aging || {};
-      const backendTotals = ledgerRes?.data?.totals || { outstanding: 0, availableAdvance: 0 };
-
-      setLedgerData(transactions);
-      setDashboardTotals(backendTotals);
-
-      setAgingTotals({
-        current: backendAging.current || 0,
-        d30: backendAging.thirtyPlus || 0,
-        d60: backendAging.sixtyPlus || 0,
-        d90: backendAging.ninetyPlus || 0
-      });
-
-      const dbCustomer = profileRes?.data?.data?.customer || profileRes?.data?.customer;
-
-      if (dbCustomer) {
-        setCustomerProfile({
-          company: dbCustomer.companyName || 'Unknown',
-          gst: dbCustomer.gstNumber || 'N/A',
-          address: dbCustomer.address || 'N/A',
-          email: dbCustomer.email || '',
-          manager: dbCustomer.manager?.name || 'Unassigned',
-          managerId: dbCustomer.manager?._id || ''
-        });
-      }
+      if (fresh) invalidate(key);
+      applyLedger(await load(key, () => fetchCustomerLedger(customerId)));
     } catch (error) {
       console.error("Ledger Fetch Error:", error);
       toast.error("Failed to load ledger data.");
     } finally {
       setIsLoading(false);
+      setIsRevalidating(false);
     }
-  }, [customerId]);
+  }, [customerId, applyLedger]);
 
+  const fetchLedgerData = useCallback(() => loadLedger(true), [loadLedger]);
+
+  // First load: joins the in-flight hover prefetch instead of starting a second request
   useEffect(() => {
-    if (customerId && currentUserRole) fetchLedgerData();
-  }, [customerId, currentUserRole, fetchLedgerData]);
+    if (!customerId || !currentUserRole) return;
+    if (isFresh(customerLedgerKey(customerId))) return;
+    loadLedger(false);
+  }, [customerId, currentUserRole, loadLedger]);
 
 const handleEditClick = (row) => {
     setEditingId(row?._id || row?.id);
@@ -146,6 +164,7 @@ const handleEditClick = (row) => {
 
   return {
     isLoading,
+    isRevalidating,
     customerProfile,
     ledgerData,
     agingTotals,
